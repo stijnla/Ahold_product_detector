@@ -1,0 +1,5 @@
+<launch>
+  <include file="$(find realsense2_camera)/launch/rs_camera.launch"/>
+  <node name="depth_listener" pkg="ahold_product_detection" type="receive_depth_image.py" output="screen"/>
+  <node name="rgb_listener" pkg="ahold_product_detection" type="receive_rgb_image.py" output="screen"/>
+</launch>
