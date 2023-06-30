@@ -113,8 +113,6 @@ class Tracker:
         self.current_track_id = 0
         self.tracks = []
         self.frequency = frequency
-        rospy.init_node('multiObjectTracker', anonymous=False)
-        rospy.Subscriber("detected_products", ProductList, self.callback)
         self.skip_frame_count = 0
         self.previous_measurement_exists = False
         self.track_colors = [(255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0),
@@ -123,11 +121,11 @@ class Tracker:
         
         self.index_product_to_grasp = None
         self.initial_score_product_to_grasp = None
-        rospy.spin()
+        
 
 
 
-    def callback(self, data):
+    def process_detections(self, data):
         detected_products = [msg.data for msg in data.data]
         product_poses = [detected_product[2::] for detected_product in detected_products]
         product_scores = [detected_product[1] for detected_product in detected_products]

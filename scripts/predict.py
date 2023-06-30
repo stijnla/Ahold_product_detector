@@ -9,13 +9,13 @@ import pyrealsense2 as rs
 from sensor_msgs.msg import PointCloud2, PointField
 from sensor_msgs import point_cloud2
 from std_msgs.msg import Header, Int32
-from ahold_product_detection.msg import FloatList, PointCloudList, ProductClass
+from ahold_product_detection.msg import FloatList, PointCloudList, ProductClass, ProductList
 from tf.transformations import quaternion_from_euler
 import tf2_ros
 import tf
 from geometry_msgs.msg import TransformStamped, PoseStamped
 from itertools import combinations
-
+from multiObjectTracker import Tracker
 
 
 def requestRGBD_client():
@@ -231,7 +231,7 @@ def read_message(message):
 
 
 
-def estimate_pose_object(depth_image, depth_bounding_box, intrinsic_camera_matrix, frame_id):
+def estimate_pose_object(depth_image, depth_bounding_box, intrinsic_camera_matrix, frame_id, name, score):
     """Returns pose message and pointcloud message"""
     # Calculate middle of bounding box (which is the center of the object's surface)
     xyz_vector = get_grasp_coordinates(depth_image, depth_bounding_box, intrinsic_camera_matrix)
@@ -243,14 +243,14 @@ def estimate_pose_object(depth_image, depth_bounding_box, intrinsic_camera_matri
     orientation = estimate_pointcloud_orientation_with_plane(pointcloud)
     
     pose_message = FloatList()
-    vector = xyz_vector.tolist() + orientation
+    vector = [name] + [score] + xyz_vector.tolist() + orientation
     pose_message.data = vector
 
     return pose_message, pointcloud_message
 
 
 
-def estimate_pose_detected_objects(rgb_image, depth_image, rgb_bounding_boxes, intrinsic_camera_matrix, frame_id):
+def estimate_pose_detected_objects(rgb_image, depth_image, rgb_bounding_boxes, intrinsic_camera_matrix, frame_id, names, scores):
     """Returns the poses and pointclouds of all detected objects"""
     pointcloud_messages = []
     object_poses = []
@@ -258,11 +258,15 @@ def estimate_pose_detected_objects(rgb_image, depth_image, rgb_bounding_boxes, i
     # Relate rgb_bounding_boxes to depth image
     depth_bounding_boxes = translate_rgb_bounding_boxes_to_depth(rgb_image, depth_image, rgb_bounding_boxes)
     
-    for depth_bounding_box in depth_bounding_boxes:
+    for i, depth_bounding_box in enumerate(depth_bounding_boxes):
+        name = names[i]
+        score = scores[i]
         pose_message, pointcloud_message = estimate_pose_object(depth_image, 
                                                                 depth_bounding_box, 
                                                                 intrinsic_camera_matrix, 
-                                                                frame_id)
+                                                                frame_id,
+                                                                name,
+                                                                score)
         
         object_poses.append(pose_message)
         pointcloud_messages.append(pointcloud_message)
@@ -360,7 +364,9 @@ def search_products(message, model):
                                                                     depth_image, 
                                                                     rgb_bounding_boxes, 
                                                                     intrinsic_camera_matrix, 
-                                                                    frame_id)
+                                                                    frame_id,
+                                                                    names, 
+                                                                    scores)
     return object_poses, pointcloud_messages, names, scores
 
 
@@ -408,11 +414,17 @@ def main():
     rospy.sleep(1)
     num_objects = 0
 
+    # init kalman filter
+    dist_threshold = 2 # if objects are standing still, choose 0.1 (=10 cm), if movement, choose 0.5
+    max_frame_skipped = 5
+    max_trace_length = 3
+    tracker = Tracker(dist_threshold=dist_threshold, max_frame_skipped=max_frame_skipped, max_trace_length=max_trace_length, frequency=1)
 
     while not rospy.is_shutdown():
         # Receive message from rgbd_processor
         message = requestRGBD_client()
         
+        rospy.loginfo('recieved message')
         if message != None:
             object_poses, pointcloud_messages, names, scores = search_products(message, model)
             
@@ -420,7 +432,9 @@ def main():
                 
             pub_num_objects.publish(num_objects)
             
-            
+            products = ProductList()
+            products.data = object_poses
+            tracker.process_detections(products)
             
 
 
