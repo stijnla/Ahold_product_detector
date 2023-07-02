@@ -8,8 +8,9 @@ Before starting, make sure to have ROS Noetic installed: http://wiki.ros.org/noe
 
 After installation, initialize a workspace in order to build and run the ROS package. Do this by running the following commands:
 
-> mkdir YOUR_WORKSPACE_NAME
-
+```console
+mkdir YOUR_WORKSPACE_NAME
+```
 > cd YOUR_WORKSPACE_NAME
 
 > mkdir src
