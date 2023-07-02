@@ -355,7 +355,7 @@ def main():
     rospy.sleep(1)
 
     # Initialize kalman filter for object tracking
-    dist_threshold = 0.1 # if objects are standing still, choose 0.1 (=10 cm), if movement, choose 0.5
+    dist_threshold = 2 # if objects are standing still, choose 0.1 (=10 cm), if movement, choose 0.5
     max_frame_skipped = 15
     max_trace_length = 3
     tracker = Tracker(dist_threshold=dist_threshold, max_frame_skipped=max_frame_skipped, max_trace_length=max_trace_length, frequency=1)

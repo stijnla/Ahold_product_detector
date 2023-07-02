@@ -1,5 +1,5 @@
-# Ahold_product_detector
-This repository implements a product detector for products in the Albert Heijn supermarket
+# Ahold Product Detector
+This repository implements a product detector for products in the Albert Heijn supermarket. It is able to detect products using YoloV8 and track them using a Kalman Filter. 
 
 
 ### Install this ROS Package for Ubuntu
@@ -48,4 +48,12 @@ If you want to rebuild the ROS package, you should first deactivate the python v
 deactivate
 catkin clean
 catkin build
+```
+
+### Run the code
+
+In order to run the code, make sure that the ROS environment is sourced, the ROS package is build and sourced, and that the python virtual environment is activated. Then run the following command with a realsense camera attached to your system:
+
+```console
+roslaunch ahold_product_detection detect.launch
 ```
