@@ -57,3 +57,9 @@ In order to run the code, make sure that the ROS environment is sourced, the ROS
 ```console
 roslaunch ahold_product_detection detect.launch
 ```
+
+And run the following if only the detection nodes are necessary if you are using a robot for example:
+
+```console
+roslaunch ahold_product_detection robot.launch
+```
