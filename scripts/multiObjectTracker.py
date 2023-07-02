@@ -10,7 +10,7 @@ from ahold_product_detection.msg import FloatList, ProductList
 from tf.transformations import quaternion_from_euler
 import tf2_ros
 from geometry_msgs.msg import TransformStamped
-
+import os
 
 
 class rotatedRect():
@@ -32,6 +32,8 @@ class rotatedRect():
         cv2.line(self.frame, self.corners[2], self.corners[3], self.color[::-1], self.thickness)
         cv2.line(self.frame, self.corners[3], self.corners[0], self.color, self.thickness)
 
+    
+    
     def determine_rect_corners(self):
         rot_mat = np.array([[np.cos(self.angle), -np.sin(self.angle)],
                             [np.sin(self.angle),  np.cos(self.angle)]])
@@ -193,9 +195,10 @@ class Tracker:
 
         
     def visualize(self, measurements, product_to_grasp):
-        frame_xz = self.draw_xz_view(measurements, product_to_grasp)        
-        cv2.imshow('kalman filter xz', frame_xz)
-        cv2.waitKey(1)
+        frame_xz = self.draw_xz_view(measurements, product_to_grasp)  
+        ahold_logo = cv2.resize(cv2.imread(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'ahold_logo.png')), (138, 45))
+        frame_xz[0:45, 600-138:600] = ahold_logo
+        self.frame = frame_xz
 
 
 
@@ -210,7 +213,7 @@ class Tracker:
         # Draw the measurements
         for measurement in measurements:
 
-            x = -int(scale * measurement[0]) + int(width/2)
+            x = int(scale * measurement[0]) + int(width/2)
             z = int(scale *measurement[2])
 
             cv2.circle(frame, (x, z), 6, (0,0,0), -1)
@@ -219,13 +222,13 @@ class Tracker:
         for track in self.tracks:
             updated_state = track.trace[-1]
 
-            x = -int(scale * updated_state[0]) + int(width/2)
+            x = int(scale * updated_state[0]) + int(width/2)
             z = int(scale *updated_state[2])
             theta = updated_state[4][0]
 
             variance_scale = 100000
             axis_length = (int(track.KF.pred_err_cov[0,0]/variance_scale), int(track.KF.pred_err_cov[2,2]/variance_scale))
-            print(axis_length)
+
             rotatedRect(frame, (x, z), 20, 20, theta, (0,0,255), 3)
             cv2.ellipse(frame, (x, z), axis_length, 0, 0, 360, (0,255,255), 3)
             cv2.putText(frame, str(track.classification), (x + 5, z - 5), cv2.FONT_HERSHEY_COMPLEX_SMALL, 0.6, (0,200,0), 1)
@@ -233,12 +236,12 @@ class Tracker:
         # product to grasp
         if product_to_grasp != None:
             updated_state = product_to_grasp.trace[-1]
-            x = -int(scale * updated_state[0]) + int(width/2)
+            x = int(scale * updated_state[0]) + int(width/2)
             z = int(scale *updated_state[2])
             theta = updated_state[4][0]
             cv2.circle(frame, (x, z), 15, (0,0,0), 3)
 
-        return frame
+        return frame[::-1]
 
 
 

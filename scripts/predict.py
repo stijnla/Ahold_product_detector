@@ -3,6 +3,8 @@ import rospy
 from ahold_product_detection.srv import *
 from cv_bridge import CvBridge
 import ultralytics
+from ultralytics.yolo.utils.plotting import Annotator
+import cv2
 import os
 import numpy as np
 from sensor_msgs.msg import PointCloud2, PointField
@@ -40,7 +42,7 @@ def predict(model, rgb_image):
     """Returns predicted bounding boxes, possible classes, and predicted scores for each bounding box"""
     
     # Perform object detection on an image using the model (YOLO Neural Network)
-    results = model.predict(source=rgb_image, show=True, save=False, verbose=False)
+    results = model.predict(source=rgb_image, show=False, save=False, verbose=False)
 
     # Get resulting bounding boxes defined as (x, y, width, height)
     bounding_boxes = results[0].boxes.xyxy.cpu().numpy()
@@ -51,7 +53,7 @@ def predict(model, rgb_image):
     # Get names of all classes that can be detected
     names = results[0].boxes.cls.cpu().numpy()
 
-    return bounding_boxes, names, scores
+    return results, bounding_boxes, names, scores
 
 
 
@@ -330,7 +332,7 @@ def search_products(message, model, listener):
     rgb_image, depth_image, intrinsic_camera_matrix, frame_id = read_message(message)
 
     # Predict product bounding boxes and classes
-    rgb_bounding_boxes, names, scores = predict(model, rgb_image)
+    results, rgb_bounding_boxes, names, scores = predict(model, rgb_image)
     
     products, pointcloud_messages = estimate_pose_detected_objects(rgb_image, 
                                                                     depth_image, 
@@ -340,15 +342,31 @@ def search_products(message, model, listener):
                                                                     names, 
                                                                     scores,
                                                                     listener)
-    return products, pointcloud_messages 
-
-
     
+    frame = plot_detection_results(rgb_image, results, model)
+    return frame, products, pointcloud_messages 
+
+
+
+def plot_detection_results(frame, results, model):
+    for r in results:
+        
+        annotator = Annotator(frame)
+        
+        boxes = r.boxes
+        for box in boxes:
+            
+            b = box.xyxy[0]  # get box coordinates in (top, left, bottom, right) format
+            c = box.cls
+            annotator.box_label(b, model.names[int(c)])
+            
+    frame = annotator.result()  
+    return frame
+
 def main():
     # Load yolo model weights for detection
     weight_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'yolo_model', 'nano_supermarket_best.pt')
     model = ultralytics.YOLO(weight_path)
-
     # Initialize ros node
     rospy.init_node('Product_detector', anonymous=False)
     listener = tf.TransformListener()
@@ -366,10 +384,12 @@ def main():
         
         if message != None:
             # Detect, localize and transform the detected products
-            products, pointcloud_messages = search_products(message, model, listener)                       
-            
+            frame, products, pointcloud_messages = search_products(message, model, listener)                       
+            resized_frame = cv2.resize(frame, (1067, 600))
             # Track the detected products with Kalman Filter
             tracker.process_detections(products)
+            cv2.imshow("Result", np.hstack((resized_frame, tracker.frame)))
+            cv2.waitKey(1)
             
 
 
