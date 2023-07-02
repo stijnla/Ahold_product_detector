@@ -10,25 +10,20 @@ After installation, initialize a workspace in order to build and run the ROS pac
 
 ```console
 mkdir YOUR_WORKSPACE_NAME
+cd YOUR_WORKSPACE_NAME
+mkdir src
+cd src
 ```
-> cd YOUR_WORKSPACE_NAME
-
-> mkdir src
-
-> cd src
-
 We want to have the ROS package inside the 'src' directory, so now that we are in here we can clone the repository:
-
-> git clone git@github.com:stijnla/Ahold_product_detector.git
-
+```console
+git clone git@github.com:stijnla/Ahold_product_detector.git
+```
 Now return to your workspace directory, source the ROS environment if you haven't done so, and build the package by running the following lines:
-
-> cd ..
-
-> source /opt/ros/noetic/setup.bash
-
-> catkin build
-
+```console
+cd ..
+source /opt/ros/noetic/setup.bash
+catkin build
+```
 
 
 
