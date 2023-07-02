@@ -23,12 +23,29 @@ Now return to your workspace directory, source the ROS environment if you haven'
 cd ..
 source /opt/ros/noetic/setup.bash
 catkin build
+source /devel/setup.bash
+```
+Now that we have setup the ROS package, it is time to setup the python virtual environment for the python dependencies. For simplicity, make sure that the location of your virtual environment is NOT in your workspace, so that catkin does not try to build your virtual environment. After choosing a location of desire, run the following commands to create and activate your virtual environment:
+
+```console
+python -m venv PATH_TO_YOUR_VIRTUAL_ENV
+source PATH_TO_YOUR_VIRTUAL_ENV/bin/activate
 ```
 
+Now we install the dependencies for python in this virtual environment so it does not interfere with any other projects:
 
+```console
+pip install numpy
+pip install opencv-python
+pip install ultralytics
+pip install roslibpy
+pip install scipy
+```
 
+If you want to rebuild the ROS package, you should first deactivate the python virtual environment, than clean the build and re-build the package. Run the following commands in the workspace directory to achieve this:
 
-
-
-
-, and to source the ROS environment in your terminal whenever you want to run the code.
+```console
+deactivate
+catkin clean
+catkin build
+```

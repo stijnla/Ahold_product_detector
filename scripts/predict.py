@@ -5,7 +5,6 @@ from cv_bridge import CvBridge
 import ultralytics
 import os
 import numpy as np
-import pyrealsense2 as rs
 from sensor_msgs.msg import PointCloud2, PointField
 from sensor_msgs import point_cloud2
 from std_msgs.msg import Header, Int32
@@ -14,7 +13,6 @@ from tf.transformations import quaternion_from_euler, euler_from_quaternion
 import tf2_ros
 import tf
 from geometry_msgs.msg import TransformStamped, PoseStamped
-from itertools import combinations
 from multiObjectTracker import Tracker
 
 
