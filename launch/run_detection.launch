@@ -1,5 +1,0 @@
-<launch>
-    <node name="rgbd_processor" pkg="ahold_product_detection" type="process_rgbd.py" output="screen"/>
-    <node name="product_detector" pkg="ahold_product_detection" type="predict.py" output="screen"/>
-    <node name="product_broadcaster" pkg="ahold_product_detection" type="product_broadcaster.py" output="screen"/>
-</launch>

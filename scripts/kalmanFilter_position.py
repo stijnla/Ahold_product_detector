@@ -12,7 +12,7 @@ class KalmanFilter:
 
 		# Variances used in prediction
 		self.initialStateVariance = initial_state_variance
-		self.processVariance = 1000
+		self.processVariance = 10**6
 		self.U = 1 if method == "Acceleration" else 0
 		
 		dt = 1/frequency
@@ -115,7 +115,7 @@ class KalmanFilter:
 		])
 
 		# Update observation matrix
-		self.Q = self.B * self.B.T
+		self.Q = self.B * np.diag(np.ones((1, 1))) * self.processVariance * self.B.T
 
 		
 

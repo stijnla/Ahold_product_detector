@@ -11,6 +11,9 @@ from ahold_product_detection.msg import FloatList, ProductList
 from tf.transformations import quaternion_from_euler
 import tf2_ros
 from geometry_msgs.msg import TransformStamped
+
+
+
 class rotatedRect():
 
     def __init__(self, frame, center, width, height, angle, color, thickness) -> None:
@@ -49,8 +52,6 @@ class rotatedRect():
 class Tracks:
 
     def __init__(self, measurement, classification, score, track_id, frequency):
-        #TODO: implement if
-        #state = np.array([measurement[0], 0, measurement[1], 0, measurement[2], 0, measurement[3], 0, measurement[4], 0, measurement[5], 0]) # initial state, speeds are both 0
         state = np.array(measurement) # initial state, speeds are both 0
         self.KF = KalmanFilter(init_state=state, frequency=frequency, measurement_variance=0.1)
         self.trace = deque(maxlen=20)
@@ -58,6 +59,7 @@ class Tracks:
         self.skipped_frames = 0
         self.classifications = []
         self.scores = []
+        self.frequencies = []
         if classification == classification and score == score:
             self.classifications.append(classification)
             self.scores.append(score)
@@ -65,8 +67,6 @@ class Tracks:
 
     @property
     def prediction(self):
-        #TODO: implement if
-        #return np.array([self.KF.pred_state[0, 0], self.KF.pred_state[2, 0], self.KF.pred_state[4, 0], self.KF.pred_state[6, 0], self.KF.pred_state[8, 0], self.KF.pred_state[10, 0]])
         return np.array([self.KF.pred_state[0, 0], self.KF.pred_state[1, 0], self.KF.pred_state[2, 0], self.KF.pred_state[3, 0], self.KF.pred_state[4, 0], self.KF.pred_state[5, 0]])
 
 
@@ -89,6 +89,11 @@ class Tracks:
         return mean_score
 
     
+    @property
+    def variance(self):
+        return self.KF.pred_err_cov
+
+
 
     def update(self, measurement, classification, score, frequency):
         # Add classification to classifications
@@ -97,11 +102,21 @@ class Tracks:
             self.scores.append(score)
 
         # Update the state transition matrix based on the passed time
-        self.KF.update_matrices(frequency)
+        if self.frequencies == []:
+            self.KF.update_matrices(frequency)
+        else:
+            freq = 1/(sum([1/f for f in self.frequencies]) + 1/frequency)
+            self.KF.update_matrices(freq)
 
         # Update the state based on the new measurements
         self.KF.update(np.array(measurement).reshape(6, 1))
-        
+
+
+
+    def update_no_measurement(self, frequency):
+        self.frequencies.append(frequency)
+        freq = 1/sum([1/f for f in self.frequencies])
+        self.KF.update_matrices(freq)
 
 
 class Tracker:
@@ -133,21 +148,21 @@ class Tracker:
 
         
 
-        if (len(detected_products) > 0): 
+        
 
-            current_time = rospy.get_time()
-            if self.previous_measurement_exists:
-                delta_t = current_time - self.prev_time
-            else:
-                delta_t = 1
-            
-            self.previous_measurement_exists = True
-            self.prev_time = current_time
-            self.update(product_poses, product_classes, product_scores, 1/float(delta_t)) 
-            product_to_grasp = self.choose_desired_product()
-            if product_to_grasp != None:
-                self.broadcast_product_to_grasp(product_to_grasp)
-            self.visualize(product_poses, product_to_grasp)
+        current_time = rospy.get_time()
+        if self.previous_measurement_exists:
+            delta_t = current_time - self.prev_time
+        else:
+            delta_t = 1
+        
+        self.previous_measurement_exists = True
+        self.prev_time = current_time
+        self.update(product_poses, product_classes, product_scores, 1/float(delta_t)) 
+        product_to_grasp = self.choose_desired_product()
+        if product_to_grasp != None:
+            self.broadcast_product_to_grasp(product_to_grasp)
+        self.visualize(product_poses, product_to_grasp)
 
 
 
@@ -174,17 +189,13 @@ class Tracker:
         t.transform.rotation.z = q[2]
         t.transform.rotation.w = q[3]
 
-        print(t)
         br.sendTransform(t)
 
 
         
     def visualize(self, measurements, product_to_grasp):
-        frame_xz = self.draw_xz_view(measurements, product_to_grasp)
-        #frame_yz = self.draw_xy_view(measurements)
-        
+        frame_xz = self.draw_xz_view(measurements, product_to_grasp)        
         cv2.imshow('kalman filter xz', frame_xz)
-        #cv2.imshow('kalman filter xy', frame_yz)
         cv2.waitKey(1)
 
 
@@ -208,18 +219,16 @@ class Tracker:
         # Draw the latest updated states
         for track in self.tracks:
             updated_state = track.trace[-1]
-            
-            """
-            x = -int(scale * updated_state[0]) + int(width/2)
-            z = int(scale *updated_state[4])
-            """
 
             x = -int(scale * updated_state[0]) + int(width/2)
             z = int(scale *updated_state[2])
             theta = updated_state[4][0]
 
+            variance_scale = 100000
+            axis_length = (int(track.KF.pred_err_cov[0,0]/variance_scale), int(track.KF.pred_err_cov[2,2]/variance_scale))
+            print(axis_length)
             rotatedRect(frame, (x, z), 20, 20, theta, (0,0,255), 3)
-            
+            cv2.ellipse(frame, (x, z), axis_length, 0, 0, 360, (0,255,255), 3)
             cv2.putText(frame, str(track.classification), (x + 5, z - 5), cv2.FONT_HERSHEY_COMPLEX_SMALL, 0.6, (0,200,0), 1)
         
         # product to grasp
@@ -282,7 +291,6 @@ class Tracker:
             if self.index_product_to_grasp == None:
                 self.initial_score_product_to_grasp = max(detected_desired_product_scores)
                 self.index_product_to_grasp = self.tracks[detected_desired_product_scores.index(self.initial_score_product_to_grasp)].track_id
-                print('assigned product to grasp')
             
         desired_track = []
         if self.index_product_to_grasp != None:
@@ -321,7 +329,7 @@ class Tracker:
         
         print(np.round((10**9)*self.measurement_variance, decimals=1))
         print(self.num_measurements)
-
+    
 
 
     def update(self, measurements, classifications, scores, current_frequency):
@@ -332,39 +340,52 @@ class Tracker:
                 self.tracks.append(Tracks(measurement, classifications[i], scores[i], self.current_track_id, current_frequency))
                 self.current_track_id += 1
         
-        # Calculate distance measurements w.r.t. existing track predictions
-        dists = np.array([np.linalg.norm(measurements - track.prediction, axis=1) for track in self.tracks])
+        if len(measurements) > 0:
+            # Calculate distance measurements w.r.t. existing track predictions
+            dists = np.array([np.linalg.norm(measurements - track.prediction, axis=1) for track in self.tracks])
 
-        # Determine which measurement belongs to which track
-        assignment = np.array(linear_sum_assignment(dists)).T
-        
-        # Only assign a measurement to a track if it is close enough to the predicted position
-        assignment = [a for a in assignment if dists[a[0], a[1]] < self.dist_threshold]
+            # Determine which measurement belongs to which track
+            assignment = np.array(linear_sum_assignment(dists)).T
+            
+            # Only assign a measurement to a track if it is close enough to the predicted position
+            assignment = [a for a in assignment if dists[a[0], a[1]] < self.dist_threshold]
 
-        # Update state of existing tracks with measurement
-        for track_idx, measurement_idx in assignment:
-            self.tracks[track_idx].update(measurements[measurement_idx], classifications[measurement_idx], scores[measurement_idx], current_frequency)
-            self.tracks[track_idx].skipped_frames = 0
-   
-            #self.calculate_variance_measurements(measurements[measurement_idx])
+            # Update state of existing tracks with measurement
+            for track_idx, measurement_idx in assignment:
+                self.tracks[track_idx].update(measurements[measurement_idx], classifications[measurement_idx], scores[measurement_idx], current_frequency)
+                self.tracks[track_idx].skipped_frames = 0
+                self.tracks[track_idx].frequencies = []
+    
+                #self.calculate_variance_measurements(measurements[measurement_idx])
+            
+            # Create new tracks for measurements without track
+            assigned_det_idxs = [det_idx for _, det_idx in assignment]
+            for i, det in enumerate(measurements):
+                if i not in assigned_det_idxs:
+                    # TODO: do not add tracks that are (0, 0, 0) (bad measurement)
+                    self.tracks.append(Tracks(det, classifications[i], scores[i], self.current_track_id, current_frequency))
+                    self.current_track_id += 1
 
-        # Propagate unassigned tracks using the prediction 
-        assigned_track_idxs = [track_idx for track_idx, _ in assignment]
-        for i, track in enumerate(self.tracks):
-            if i not in assigned_track_idxs:
+            # Propagate unassigned tracks using the prediction 
+            assigned_track_idxs = [track_idx for track_idx, _ in assignment]
+            for i, track in enumerate(self.tracks):
+                if i not in assigned_track_idxs:
+                    # No measurement available, assume prediction is right
+                    track.update_no_measurement(current_frequency)
+
+                    # Keep track of the missed measurements of this object
+                    track.skipped_frames += 1
+
+        else:
+            # No measurements, update tracks according to prediction
+            for i, track in enumerate(self.tracks):
                 # No measurement available, assume prediction is right
-                track.update(track.prediction, track.classification, track.score, current_frequency)
+                #TODO: do not update
+                track.update_no_measurement(current_frequency)
 
                 # Keep track of the missed measurements of this object
                 track.skipped_frames += 1
 
-        # Create new tracks for measurements without track
-        assigned_det_idxs = [det_idx for _, det_idx in assignment]
-        for i, det in enumerate(measurements):
-            if i not in assigned_det_idxs:
-                # TODO: do not add tracks that are (0, 0, 0) (bad measurement)
-                self.tracks.append(Tracks(det, classifications[i], scores[i], self.current_track_id, current_frequency))
-                self.current_track_id += 1
 
         # Delete tracks if skipped_frames too large
         self.tracks = [track for track in self.tracks if not track.skipped_frames > self.max_frame_skipped]
@@ -385,16 +406,3 @@ def createimage(w,h):
 	img = np.ones((w,h,3),np.uint8)*255
 	return img
 
-
-
-def main():
-    dist_threshold = 2 # if objects are standing still, choose 0.1 (=10 cm), if movement, choose 0.5
-    max_frame_skipped = 5
-    max_trace_length = 3
-    Tracker(dist_threshold=dist_threshold, max_frame_skipped=max_frame_skipped, max_trace_length=max_trace_length, frequency=1)
-
-
-
-
-if __name__ == '__main__':
-	main()

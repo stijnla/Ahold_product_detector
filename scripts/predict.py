@@ -10,7 +10,7 @@ from sensor_msgs.msg import PointCloud2, PointField
 from sensor_msgs import point_cloud2
 from std_msgs.msg import Header, Int32
 from ahold_product_detection.msg import FloatList, PointCloudList, ProductClass, ProductList
-from tf.transformations import quaternion_from_euler
+from tf.transformations import quaternion_from_euler, euler_from_quaternion
 import tf2_ros
 import tf
 from geometry_msgs.msg import TransformStamped, PoseStamped
@@ -231,7 +231,46 @@ def read_message(message):
 
 
 
-def estimate_pose_object(depth_image, depth_bounding_box, intrinsic_camera_matrix, frame_id, name, score):
+def convert_pose(pose, frame, listener):
+    x, y, z, theta, phi, psi = pose
+    
+    # make tf PoseStamped for transformation
+    p = PoseStamped()
+    p.header.stamp = rospy.Time.now()
+    p.header.frame_id = "camera_color_optical_frame"
+    p.pose.position.x = x
+    p.pose.position.y = y
+    p.pose.position.z = z
+    q = quaternion_from_euler(theta, phi, 0)
+    p.pose.orientation.x = q[0]
+    p.pose.orientation.y = q[1]
+    p.pose.orientation.z = q[2]
+    p.pose.orientation.w = q[3]
+
+    # Transform pose to desired frame
+    p_t = listener.transformPose(frame, p)
+    
+    # Convert back to original format
+    q_t = [p_t.pose.orientation.x,
+           p_t.pose.orientation.y,
+           p_t.pose.orientation.z,
+           p_t.pose.orientation.w]
+    
+    euler = euler_from_quaternion(q_t)
+
+    new_pose = [p_t.pose.position.x,
+                p_t.pose.position.y, 
+                p_t.pose.position.z, 
+                euler[0],
+                euler[1],
+                euler[2]]
+    
+    rospy.loginfo("Converted pose from 'camera_color_optical_frame' to " + frame)
+    return new_pose
+
+
+
+def estimate_pose_object(depth_image, depth_bounding_box, intrinsic_camera_matrix, frame_id, name, score, listener):
     """Returns pose message and pointcloud message"""
     # Calculate middle of bounding box (which is the center of the object's surface)
     xyz_vector = get_grasp_coordinates(depth_image, depth_bounding_box, intrinsic_camera_matrix)
@@ -242,17 +281,29 @@ def estimate_pose_object(depth_image, depth_bounding_box, intrinsic_camera_matri
     # Estimate orientation of object using a plane fit around the object's surface pointcloud
     orientation = estimate_pointcloud_orientation_with_plane(pointcloud)
     
+    pose = xyz_vector.tolist() + orientation
+
+    robot = False
+
+    if robot:
+        frame = 'base_link'
+    else:
+        frame = 'camera_color_optical_frame'
+    
+    pose = convert_pose(pose, frame, listener)
+    vector = [name] + [score] + pose
+
     pose_message = FloatList()
-    vector = [name] + [score] + xyz_vector.tolist() + orientation
     pose_message.data = vector
 
     return pose_message, pointcloud_message
 
 
 
-def estimate_pose_detected_objects(rgb_image, depth_image, rgb_bounding_boxes, intrinsic_camera_matrix, frame_id, names, scores):
+def estimate_pose_detected_objects(rgb_image, depth_image, rgb_bounding_boxes, intrinsic_camera_matrix, frame_id, names, scores, listener):
     """Returns the poses and pointclouds of all detected objects"""
     pointcloud_messages = []
+    products = ProductList()
     object_poses = []
     
     # Relate rgb_bounding_boxes to depth image
@@ -266,174 +317,60 @@ def estimate_pose_detected_objects(rgb_image, depth_image, rgb_bounding_boxes, i
                                                                 intrinsic_camera_matrix, 
                                                                 frame_id,
                                                                 name,
-                                                                score)
+                                                                score,
+                                                                listener)
         
         object_poses.append(pose_message)
         pointcloud_messages.append(pointcloud_message)
-    
-    return object_poses, pointcloud_messages
+    products.data = object_poses
+    return products, pointcloud_messages
 
 
 
-def find_desired_object(desired_object_index, names, object_poses, scores, pointcloud_messages):
-    """Returns all objects that are desired, along with their scores and pointclouds"""
-    desired_objects = []
-    desired_object_scores = []
-    desired_pointclouds = []
-
-
-    for i, name in enumerate(names):
-        if name == desired_object_index:
-            
-            desired_objects.append(object_poses[i])
-            desired_object_scores.append(scores[i])
-            desired_pointclouds.append(pointcloud_messages[i])
-    
-    return desired_objects, desired_object_scores, desired_pointclouds
-
-
-
-def broadcast_tf_transform_of_object(object_pose, index, timeStamp, listener):
-    """Converts message to a tf2 frame when message becomes available, and then broadcasts it"""
-    br = tf2_ros.TransformBroadcaster()
-    
-
-    x, y, z, theta, phi, psi = object_pose.data
-    
-    robot = False
-    if robot:
-        p = PoseStamped()
-        p.header.stamp = timeStamp
-        rospy.logwarn(timeStamp)
-        p.header.frame_id = "camera_color_optical_frame"
-        #t.child_frame_id = 'object'+str(index)
-        p.pose.position.x = x
-        p.pose.position.y = y
-        p.pose.position.z = z
-        q = quaternion_from_euler(theta, phi, 0)
-        p.pose.orientation.x = q[0]
-        p.pose.orientation.y = q[1]
-        p.pose.orientation.z = q[2]
-        p.pose.orientation.w = q[3]
-
-        p_transformed = listener.transformPose('base_link', p)
-
-        t = TransformStamped()
-
-        t.header.stamp = timeStamp
-        t.header.frame_id = 'base_link'
-        t.child_frame_id = 'object'+str(index)
-        t.transform.translation.x = p_transformed.pose.position.x
-        t.transform.translation.y = p_transformed.pose.position.y
-        t.transform.translation.z = p_transformed.pose.position.z
-        t.transform.rotation.x = p_transformed.pose.orientation.x
-        t.transform.rotation.y = p_transformed.pose.orientation.y
-        t.transform.rotation.z = p_transformed.pose.orientation.z
-        t.transform.rotation.w = p_transformed.pose.orientation.w
-        
-    else:
-        t = TransformStamped()
-        t.header.stamp = timeStamp
-        t.header.frame_id = 'camera_color_optical_frame'
-        t.child_frame_id = 'object'+str(index)
-        t.transform.translation.x = x
-        t.transform.translation.y = y
-        t.transform.translation.z = z
-        q = quaternion_from_euler(theta, phi, 0)
-        t.transform.rotation.x = q[0]
-        t.transform.rotation.y = q[1]
-        t.transform.rotation.z = q[2]
-        t.transform.rotation.w = q[3]
-    br.sendTransform(t)
-
-
-
-def calculate_distance_poses(pose1, pose2):
-    return np.sqrt((pose1[0] - pose2[0])**2 + (pose1[1] - pose2[1])**2 + (pose1[2] - pose2[2])**2)
-
-
-
-def search_products(message, model):
+def search_products(message, model, listener):
     # Convert message to usable data
     rgb_image, depth_image, intrinsic_camera_matrix, frame_id = read_message(message)
 
     # Predict product bounding boxes and classes
     rgb_bounding_boxes, names, scores = predict(model, rgb_image)
     
-    object_poses, pointcloud_messages = estimate_pose_detected_objects(rgb_image, 
+    products, pointcloud_messages = estimate_pose_detected_objects(rgb_image, 
                                                                     depth_image, 
                                                                     rgb_bounding_boxes, 
                                                                     intrinsic_camera_matrix, 
                                                                     frame_id,
                                                                     names, 
-                                                                    scores)
-    return object_poses, pointcloud_messages, names, scores
+                                                                    scores,
+                                                                    listener)
+    return products, pointcloud_messages 
 
 
-
-def broadcast_detected_products(object_poses, names, scores, pub_object_class, listener, num_objects):
-    if len(object_poses) > num_objects:
-        new_num_objects = len(object_poses)
-    else:
-        new_num_objects = num_objects
-
-    for i in range(new_num_objects):
-
-        try:
-            object_pose = object_poses[i]
-            timeStamp = rospy.Time.now()
-            
-            object_class_message = ProductClass()
-            object_class_message.classification = int(names[i])
-            object_class_message.score = scores[i]
-            object_class_message.header.stamp = timeStamp
-            pub_object_class.publish(object_class_message)
-            broadcast_tf_transform_of_object(object_pose, i, timeStamp, listener)
-
-        except:
-            empty_pose = FloatList()
-            empty_pose.data = [0, 0, 0, 0, 0, 0]
-            broadcast_tf_transform_of_object(empty_pose, i, rospy.Time.now(), listener)
-
-    return new_num_objects
     
-
-
 def main():
     # Load yolo model weights for detection
     weight_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'yolo_model', 'nano_supermarket_best.pt')
     model = ultralytics.YOLO(weight_path)
 
-    # Initialize publishers for intermediate results visualization
-    pub_num_objects = rospy.Publisher("number_of_objects", Int32, queue_size=1)
-    pub_object_class = rospy.Publisher("detected_classes", ProductClass, queue_size=1)
-
+    # Initialize ros node
     rospy.init_node('Product_detector', anonymous=False)
-
     listener = tf.TransformListener()
     rospy.sleep(1)
-    num_objects = 0
 
-    # init kalman filter
-    dist_threshold = 2 # if objects are standing still, choose 0.1 (=10 cm), if movement, choose 0.5
-    max_frame_skipped = 5
+    # Initialize kalman filter for object tracking
+    dist_threshold = 0.1 # if objects are standing still, choose 0.1 (=10 cm), if movement, choose 0.5
+    max_frame_skipped = 15
     max_trace_length = 3
     tracker = Tracker(dist_threshold=dist_threshold, max_frame_skipped=max_frame_skipped, max_trace_length=max_trace_length, frequency=1)
 
     while not rospy.is_shutdown():
-        # Receive message from rgbd_processor
+        # Request new message from rgbd_processor
         message = requestRGBD_client()
         
-        rospy.loginfo('recieved message')
         if message != None:
-            object_poses, pointcloud_messages, names, scores = search_products(message, model)
+            # Detect, localize and transform the detected products
+            products, pointcloud_messages = search_products(message, model, listener)                       
             
-            num_objects = broadcast_detected_products(object_poses, names, scores, pub_object_class, listener, num_objects)
-                
-            pub_num_objects.publish(num_objects)
-            
-            products = ProductList()
-            products.data = object_poses
+            # Track the detected products with Kalman Filter
             tracker.process_detections(products)
             
 
