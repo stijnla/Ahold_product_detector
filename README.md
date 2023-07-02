@@ -9,8 +9,11 @@ Before starting, make sure to have ROS Noetic installed: http://wiki.ros.org/noe
 After installation, initialize a workspace in order to build and run the ROS package. Do this by running the following commands:
 
 > mkdir YOUR_WORKSPACE_NAME
+
 > cd YOUR_WORKSPACE_NAME
+
 > mkdir src
+
 > cd src
 
 We want to have the ROS package inside the 'src' directory, so now that we are in here we can clone the repository:
@@ -20,7 +23,9 @@ We want to have the ROS package inside the 'src' directory, so now that we are i
 Now return to your workspace directory, source the ROS environment if you haven't done so, and build the package by running the following lines:
 
 > cd ..
+
 > source /opt/ros/noetic/setup.bash
+
 > catkin build
 
 
