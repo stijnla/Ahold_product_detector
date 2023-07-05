@@ -236,7 +236,7 @@ def convert_pose(pose, frame, listener):
     
     # make tf PoseStamped for transformation
     p = PoseStamped()
-    p.header.stamp = rospy.Time.now()
+    p.header.stamp = rospy.Time(0)
     p.header.frame_id = "camera_color_optical_frame"
     p.pose.position.x = x
     p.pose.position.y = y
@@ -265,12 +265,11 @@ def convert_pose(pose, frame, listener):
                 euler[1],
                 euler[2]]
     
-    rospy.loginfo("Converted pose from 'camera_color_optical_frame' to " + frame)
     return new_pose
 
 
 
-def estimate_pose_object(depth_image, depth_bounding_box, intrinsic_camera_matrix, frame_id, name, score, listener):
+def estimate_pose_object(depth_image, depth_bounding_box, intrinsic_camera_matrix, frame_id, name, score, listener, robot):
     """Returns pose message and pointcloud message"""
     # Calculate middle of bounding box (which is the center of the object's surface)
     xyz_vector = get_grasp_coordinates(depth_image, depth_bounding_box, intrinsic_camera_matrix)
@@ -283,14 +282,13 @@ def estimate_pose_object(depth_image, depth_bounding_box, intrinsic_camera_matri
     
     pose = xyz_vector.tolist() + orientation
 
-    robot = False
-
     if robot:
         frame = 'base_link'
+        
     else:
         frame = 'camera_color_optical_frame'
-    
     pose = convert_pose(pose, frame, listener)
+    rospy.logwarn(frame)
     vector = [name] + [score] + pose
 
     pose_message = FloatList()
@@ -300,7 +298,7 @@ def estimate_pose_object(depth_image, depth_bounding_box, intrinsic_camera_matri
 
 
 
-def estimate_pose_detected_objects(rgb_image, depth_image, rgb_bounding_boxes, intrinsic_camera_matrix, frame_id, names, scores, listener):
+def estimate_pose_detected_objects(rgb_image, depth_image, rgb_bounding_boxes, intrinsic_camera_matrix, frame_id, names, scores, listener, robot):
     """Returns the poses and pointclouds of all detected objects"""
     pointcloud_messages = []
     products = ProductList()
@@ -318,7 +316,8 @@ def estimate_pose_detected_objects(rgb_image, depth_image, rgb_bounding_boxes, i
                                                                 frame_id,
                                                                 name,
                                                                 score,
-                                                                listener)
+                                                                listener,
+                                                                robot)
         
         object_poses.append(pose_message)
         pointcloud_messages.append(pointcloud_message)
@@ -327,7 +326,7 @@ def estimate_pose_detected_objects(rgb_image, depth_image, rgb_bounding_boxes, i
 
 
 
-def search_products(message, model, listener):
+def search_products(message, model, listener, robot):
     # Convert message to usable data
     rgb_image, depth_image, intrinsic_camera_matrix, frame_id = read_message(message)
 
@@ -341,7 +340,8 @@ def search_products(message, model, listener):
                                                                     frame_id,
                                                                     names, 
                                                                     scores,
-                                                                    listener)
+                                                                    listener,
+                                                                    robot)
     
     frame = plot_detection_results(rgb_image, results, model)
     return frame, products, pointcloud_messages 
@@ -370,13 +370,21 @@ def main():
     # Initialize ros node
     rospy.init_node('Product_detector', anonymous=False)
     listener = tf.TransformListener()
+    robot = rospy.get_param('/robot')
+    ethernet = rospy.get_param('/ethernet')
+    print(robot)
+    print(ethernet)
     rospy.sleep(1)
 
     # Initialize kalman filter for object tracking
     dist_threshold = 2 # if objects are standing still, choose 0.1 (=10 cm), if movement, choose 0.5
-    max_frame_skipped = 15
+    ethernet = True
+    if ethernet:
+        max_frame_skipped = 10
+    else:
+        max_frame_skipped = 3
     max_trace_length = 3
-    tracker = Tracker(dist_threshold=dist_threshold, max_frame_skipped=max_frame_skipped, max_trace_length=max_trace_length, frequency=1)
+    tracker = Tracker(dist_threshold=dist_threshold, max_frame_skipped=max_frame_skipped, max_trace_length=max_trace_length, frequency=1, robot=robot)
 
     while not rospy.is_shutdown():
         # Request new message from rgbd_processor
@@ -384,7 +392,7 @@ def main():
         
         if message != None:
             # Detect, localize and transform the detected products
-            frame, products, pointcloud_messages = search_products(message, model, listener)                       
+            frame, products, pointcloud_messages = search_products(message, model, listener, robot)                       
             resized_frame = cv2.resize(frame, (1067, 600))
             # Track the detected products with Kalman Filter
             tracker.process_detections(products)

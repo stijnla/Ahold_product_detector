@@ -12,7 +12,7 @@ class KalmanFilter:
 
 		# Variances used in prediction
 		self.initialStateVariance = initial_state_variance
-		self.processVariance = 10**6
+		self.processVariance = 10e-18	
 		self.U = 1 if method == "Acceleration" else 0
 		
 		dt = 1/frequency
@@ -28,12 +28,12 @@ class KalmanFilter:
 		])
 		# Control input matrix, models influence of control input on state
 		self.B = np.matrix([
-			[dt],
-			[dt],
-			[dt],
-			[dt],
-			[dt],
-			[dt],
+			[0],
+			[0],
+			[0],
+			[0],
+			[0],
+			[0],
 		])
 		
 		# Observation model matrix,
@@ -78,11 +78,11 @@ class KalmanFilter:
 
 	def update(self, measurement):
 		# Check whether sensor is giving trusty readouts, otherwise neglect by having a large observation variance matrix
-		self.check_measurement_trustworthiness(measurement)
+		#self.check_measurement_trustworthiness(measurement)
 
 		# Use measurement to refine prediction
 		kalman_gain = self.pred_err_cov*self.H.T*np.linalg.pinv(self.H*self.pred_err_cov*self.H.T+self.R)
-
+		print((measurement - (self.H*self.pred_state)))
 		self.state = self.pred_state + kalman_gain*(measurement - (self.H*self.pred_state))
 		self.err_cov = (np.identity(self.err_cov.shape[0]) - kalman_gain*self.H)*self.pred_err_cov
 
@@ -106,12 +106,12 @@ class KalmanFilter:
 		])
 		# Control input matrix, models influence of control input on state
 		self.B = np.matrix([
-			[dt],
-			[dt],
-			[dt],
-			[dt],
-			[dt],
-			[dt],
+			[0],
+			[0],
+			[0],
+			[0],
+			[0],
+			[0],
 		])
 
 		# Update observation matrix

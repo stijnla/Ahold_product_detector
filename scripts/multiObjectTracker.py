@@ -61,6 +61,7 @@ class Tracks:
         self.classifications = []
         self.scores = []
         self.frequencies = []
+        
         if classification == classification and score == score:
             self.classifications.append(classification)
             self.scores.append(score)
@@ -75,6 +76,7 @@ class Tracks:
     @property
     def classification(self):
         unique_classifications, counts = np.unique(self.classifications, return_counts=True)
+        print(self.classifications)
         index = np.argmax(counts)
         
         return unique_classifications[index]
@@ -95,7 +97,16 @@ class Tracks:
         return self.KF.pred_err_cov
 
 
+    #TODO: use to update classifications and scores to use less memory
+    def update_cache(self, cache, data):
+        # Move all stored data points up one position
+        cache = [cache[i] for i, _ in enumerate(cache) if i < len(cache) - 1]
+        
+        # Insert new data in first position of cache
+        cache.insert(0, data)
 
+        return cache
+    
     def update(self, measurement, classification, score, frequency):
         # Add classification to classifications
         if classification == classification and score == score:
@@ -122,7 +133,7 @@ class Tracks:
 
 class Tracker:
 
-    def __init__(self, dist_threshold, max_frame_skipped, max_trace_length, frequency):
+    def __init__(self, dist_threshold, max_frame_skipped, max_trace_length, frequency, robot):
         self.dist_threshold = dist_threshold
         self.max_frame_skipped = max_frame_skipped
         self.max_trace_length = max_trace_length
@@ -137,7 +148,7 @@ class Tracker:
         
         self.index_product_to_grasp = None
         self.initial_score_product_to_grasp = None
-        
+        self.robot = robot
 
 
 
@@ -175,8 +186,8 @@ class Tracker:
         x, y, z, theta, phi, psi = product_to_grasp.trace[-1]
 
         t.header.stamp = rospy.Time.now()
-        robot = False
-        if robot:
+
+        if self.robot:
             t.header.frame_id = "base_link"
         else:
             t.header.frame_id = "camera_color_optical_frame"
@@ -184,7 +195,7 @@ class Tracker:
         t.transform.translation.x = x
         t.transform.translation.y = y
         t.transform.translation.z = z
-        q = quaternion_from_euler(theta, phi, 0)
+        q = quaternion_from_euler(theta, phi,  np.pi/2)
         t.transform.rotation.x = q[0]
         t.transform.rotation.y = q[1]
         t.transform.rotation.z = q[2]
@@ -207,41 +218,58 @@ class Tracker:
         height = 600
         frame = createimage(height, width)
 
-        cv2.circle(frame, (int(width/2), 0), 10, (0,0,255), 5)
-        scale = 250 # convert millimeters to 0.25meters
+        cv2.circle(frame, (int(width/2), 100), 10, (0,0,255), 5)
+        cv2.line(frame, (int(width/2), 100), (int(width/2) - 20, 140), (0,0,255), 1)
+        cv2.line(frame, (int(width/2), 100), (int(width/2) + 20, 140), (0,0,255), 1)
+        cv2.putText(frame, 'Robot Base', (int(width/2)-40, 80), cv2.FONT_HERSHEY_COMPLEX_SMALL, 0.8, (0,0,255), 0)
+        if self.robot:
+            scale = 200 # convert millimeters to 0.2meters
+        else:
+            scale = 250 # convert millimeters to 0.25meters
 
         # Draw the measurements
         for measurement in measurements:
-
-            x = int(scale * measurement[0]) + int(width/2)
-            z = int(scale *measurement[2])
-
+            if self.robot:
+                x = int(scale * measurement[1]) + int(width/2)
+                z = int(scale * measurement[0]) + 100
+            else:
+                x = int(scale * measurement[0]) + int(width/2)
+                z = int(scale * measurement[2])
+            
             cv2.circle(frame, (x, z), 6, (0,0,0), -1)
         
         # Draw the latest updated states
         for track in self.tracks:
             updated_state = track.trace[-1]
 
-            x = int(scale * updated_state[0]) + int(width/2)
-            z = int(scale *updated_state[2])
+            if self.robot:
+                x = int(scale * updated_state[1]) + int(width/2)
+                z = int(scale *updated_state[0])  + 100
+            else:
+                x = int(scale * updated_state[0]) + int(width/2)
+                z = int(scale *updated_state[2])  
             theta = updated_state[4][0]
 
-            variance_scale = 100000
-            axis_length = (int(track.KF.pred_err_cov[0,0]/variance_scale), int(track.KF.pred_err_cov[2,2]/variance_scale))
-
+            variance_scale = 3.29 # 99.9 percent confidence
+            axis_length = (int(track.KF.pred_err_cov[0,0]*variance_scale), int(track.KF.pred_err_cov[2,2]*variance_scale))
             rotatedRect(frame, (x, z), 20, 20, theta, (0,0,255), 3)
             cv2.ellipse(frame, (x, z), axis_length, 0, 0, 360, (0,255,255), 3)
-            cv2.putText(frame, str(track.classification), (x + 5, z - 5), cv2.FONT_HERSHEY_COMPLEX_SMALL, 0.6, (0,200,0), 1)
+            cv2.putText(frame, str(track.classification), (x + 10, z - 10), cv2.FONT_HERSHEY_COMPLEX_SMALL, 0.6, (0,200,0), 1)
         
         # product to grasp
         if product_to_grasp != None:
             updated_state = product_to_grasp.trace[-1]
-            x = int(scale * updated_state[0]) + int(width/2)
-            z = int(scale *updated_state[2])
+            if self.robot:
+                x = int(scale * updated_state[1]) + int(width/2)
+                z = int(scale *updated_state[0])  + 100
+            else:
+                
+                x = int(scale * updated_state[0]) + int(width/2)
+                z = int(scale *updated_state[2])
             theta = updated_state[4][0]
             cv2.circle(frame, (x, z), 15, (0,0,0), 3)
 
-        return frame[::-1]
+        return frame
 
 
 
@@ -257,7 +285,7 @@ class Tracker:
 
             x = -int(scale * measurement[0]) + int(width/2)
             y = int(scale *measurement[1]) + int(height/2)
-
+            
             cv2.circle(frame, (x, y), 6, (0,0,0), -1)
         
         # Draw the latest updated states
@@ -279,10 +307,10 @@ class Tracker:
 
     def choose_desired_product(self):
 
-        desired_product = 93
-        minimun_required_detections = 10
+        desired_product = 32 # 93 = hagelslag melk, 31 = gotan chili sauce
+        minimun_required_detections = 5
         
-        switch_threshold = 0.8
+        switch_threshold = 100
         detected_desired_product_scores = []
         for i, track in enumerate(self.tracks):
 
@@ -329,8 +357,8 @@ class Tracker:
         else:
             self.measurement_variance = ((measurement - self.mean) @ (measurement - self.mean).T) / (self.num_measurements - 1) 
         
-        print(np.round((10**9)*self.measurement_variance, decimals=1))
-        print(self.num_measurements)
+        #rospy.logwarn((np.round((10**9)*self.measurement_variance, decimals=1)))
+        #print(self.num_measurements)
     
 
 
@@ -358,7 +386,7 @@ class Tracker:
                 self.tracks[track_idx].skipped_frames = 0
                 self.tracks[track_idx].frequencies = []
     
-                #self.calculate_variance_measurements(measurements[measurement_idx])
+                self.calculate_variance_measurements(measurements[measurement_idx])
             
             # Create new tracks for measurements without track
             assigned_det_idxs = [det_idx for _, det_idx in assignment]
