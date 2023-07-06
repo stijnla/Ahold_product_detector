@@ -58,13 +58,14 @@ class Tracks:
         self.trace = deque(maxlen=20)
         self.track_id = track_id
         self.skipped_frames = 0
-        self.classifications = []
-        self.scores = []
+        self.classifications = 20*[None]
+        self.scores = 20*[None]
         self.frequencies = []
-        
+        self.classification = None
+        self.score = None
         if classification == classification and score == score:
-            self.classifications.append(classification)
-            self.scores.append(score)
+            self.classifications = self.update_cache(self.classifications, classification)
+            self.scores = self.update_cache(self.scores, score)
 
 
     @property
@@ -73,23 +74,20 @@ class Tracks:
 
 
 
-    @property
-    def classification(self):
-        unique_classifications, counts = np.unique(self.classifications, return_counts=True)
-        print(self.classifications)
-        index = np.argmax(counts)
-        
-        return unique_classifications[index]
-    
+    def calculate_classification_and_score(self):
+        # Only pick those that are not None (so if < 20 detections)
+        real_classifications = [classification for classification in self.classifications if classification != None]
+        real_scores = [score for score in self.scores if score != None]
+        if len(real_classifications) > 0:
+            # Find unique classifications, count them, pick most occurring classification
+            unique_classifications, counts = np.unique(real_classifications, return_counts=True)
+            index = np.argmax(counts)
+            self.classification = unique_classifications[index]
 
+            # Get all values that correspond with this most occurring classification, calculate mean score
+            classification_indices = [i for i, classification in enumerate(real_classifications) if classification == self.classification]
+            self.score = sum([real_scores[i] for i in classification_indices]) / len(classification_indices)
 
-    @property
-    def score(self):
-        # EWMA WITH SCORES
-        classification_indices = [i for i, _ in enumerate(self.classifications)]
-        mean_score = sum([self.scores[i] for i in classification_indices]) / len(classification_indices)
-        
-        return mean_score
 
     
     @property
@@ -97,7 +95,6 @@ class Tracks:
         return self.KF.pred_err_cov
 
 
-    #TODO: use to update classifications and scores to use less memory
     def update_cache(self, cache, data):
         # Move all stored data points up one position
         cache = [cache[i] for i, _ in enumerate(cache) if i < len(cache) - 1]
@@ -107,11 +104,18 @@ class Tracks:
 
         return cache
     
+
     def update(self, measurement, classification, score, frequency):
         # Add classification to classifications
         if classification == classification and score == score:
-            self.classifications.append(classification)
-            self.scores.append(score)
+            self.classifications = self.update_cache(self.classifications, classification)
+            self.scores = self.update_cache(self.scores, score)
+            rospy.logwarn(self.classifications)
+            rospy.logwarn(self.scores)
+
+            self.calculate_classification_and_score()
+            rospy.logwarn("Most occuring class = " + str(self.classification))
+            rospy.logwarn("Mean score of this class = " + str(self.score))
 
         # Update the state transition matrix based on the passed time
         if self.frequencies == []:
@@ -217,15 +221,20 @@ class Tracker:
         width = 600
         height = 600
         frame = createimage(height, width)
-
-        cv2.circle(frame, (int(width/2), 100), 10, (0,0,255), 5)
-        cv2.line(frame, (int(width/2), 100), (int(width/2) - 20, 140), (0,0,255), 1)
-        cv2.line(frame, (int(width/2), 100), (int(width/2) + 20, 140), (0,0,255), 1)
-        cv2.putText(frame, 'Robot Base', (int(width/2)-40, 80), cv2.FONT_HERSHEY_COMPLEX_SMALL, 0.8, (0,0,255), 0)
+        if self.robot:
+            cv2.circle(frame, (int(width/2), 100), 10, (0,0,255), 5)
+            cv2.line(frame, (int(width/2), 100), (int(width/2) - 20, 140), (0,0,255), 1)
+            cv2.line(frame, (int(width/2), 100), (int(width/2) + 20, 140), (0,0,255), 1)
+            cv2.putText(frame, 'Robot Base', (int(width/2)-40, 80), cv2.FONT_HERSHEY_COMPLEX_SMALL, 0.8, (0,0,255), 0)
+        else:
+            cv2.circle(frame, (int(width/2), 0), 10, (0,0,255), 5)
+            cv2.line(frame, (int(width/2), 0), (int(width/2) - 20, 40), (0,0,255), 1)
+            cv2.line(frame, (int(width/2), 0), (int(width/2) + 20, 40), (0,0,255), 1)
+            cv2.putText(frame, 'Camera', (int(width/2)-40, 80), cv2.FONT_HERSHEY_COMPLEX_SMALL, 0.8, (0,0,255), 0)
         if self.robot:
             scale = 200 # convert millimeters to 0.2meters
         else:
-            scale = 250 # convert millimeters to 0.25meters
+            scale = 1000 # convert millimeters to meters
 
         # Draw the measurements
         for measurement in measurements:
@@ -307,7 +316,7 @@ class Tracker:
 
     def choose_desired_product(self):
 
-        desired_product = 32 # 93 = hagelslag melk, 31 = gotan chili sauce
+        desired_product = 31 # 93 = hagelslag melk, 31 = gotan chili sauce
         minimun_required_detections = 5
         
         switch_threshold = 100
