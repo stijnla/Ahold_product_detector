@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import rospy
 import numpy as np
-from kalmanFilter_position import KalmanFilter
+from kalmanFilter_velocity import KalmanFilter
 from collections import deque
 import cv2
 from scipy.optimize import linear_sum_assignment
@@ -53,7 +53,8 @@ class rotatedRect():
 class Tracks:
 
     def __init__(self, measurement, classification, score, track_id, frequency):
-        state = np.array(measurement) # initial state, speeds are both 0
+        state = np.concatenate([np.array(measurement).reshape(6,1), np.zeros((6,1))]) # initial state, speeds are both 0
+        
         self.KF = KalmanFilter(init_state=state, frequency=frequency, measurement_variance=0.1)
         self.trace = deque(maxlen=20)
         self.track_id = track_id
@@ -63,6 +64,7 @@ class Tracks:
         self.frequencies = []
         self.classification = None
         self.score = None
+        self.previous_measurement = np.zeros((6,1))
         if classification == classification and score == score:
             self.classifications = self.update_cache(self.classifications, classification)
             self.scores = self.update_cache(self.scores, score)
@@ -110,12 +112,9 @@ class Tracks:
         if classification == classification and score == score:
             self.classifications = self.update_cache(self.classifications, classification)
             self.scores = self.update_cache(self.scores, score)
-            rospy.logwarn(self.classifications)
-            rospy.logwarn(self.scores)
 
             self.calculate_classification_and_score()
-            rospy.logwarn("Most occuring class = " + str(self.classification))
-            rospy.logwarn("Mean score of this class = " + str(self.score))
+
 
         # Update the state transition matrix based on the passed time
         if self.frequencies == []:
@@ -125,7 +124,11 @@ class Tracks:
             self.KF.update_matrices(freq)
 
         # Update the state based on the new measurements
-        self.KF.update(np.array(measurement).reshape(6, 1))
+        measurement = np.array(measurement).reshape(6, 1)
+        measured_velocity = measurement - self.previous_measurement
+        measured_state = np.concatenate([measurement, measured_velocity])
+        self.previous_measurement = measurement
+        self.KF.update(measured_state)
 
 
 
@@ -249,16 +252,21 @@ class Tracker:
         
         # Draw the latest updated states
         for track in self.tracks:
-            updated_state = track.trace[-1]
-
+            #TODO: make variable???
+            #updated_state = track.trace[-1]
+            updated_state = track.KF.pred_state
             if self.robot:
                 x = int(scale * updated_state[1]) + int(width/2)
                 z = int(scale *updated_state[0])  + 100
             else:
                 x = int(scale * updated_state[0]) + int(width/2)
                 z = int(scale *updated_state[2])  
+                print('speed')
+                print(updated_state[6])
+                print(updated_state[7])
+                print(updated_state[8])
             theta = updated_state[4][0]
-
+            
             variance_scale = 3.29 # 99.9 percent confidence
             axis_length = (int(track.KF.pred_err_cov[0,0]*variance_scale), int(track.KF.pred_err_cov[2,2]*variance_scale))
             rotatedRect(frame, (x, z), 20, 20, theta, (0,0,255), 3)
@@ -395,7 +403,7 @@ class Tracker:
                 self.tracks[track_idx].skipped_frames = 0
                 self.tracks[track_idx].frequencies = []
     
-                self.calculate_variance_measurements(measurements[measurement_idx])
+                #self.calculate_variance_measurements(measurements[measurement_idx])
             
             # Create new tracks for measurements without track
             assigned_det_idxs = [det_idx for _, det_idx in assignment]

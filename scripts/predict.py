@@ -384,6 +384,7 @@ def main():
     else:
         max_frame_skipped = 3
     max_trace_length = 3
+    max_frame_skipped = 30
     tracker = Tracker(dist_threshold=dist_threshold, max_frame_skipped=max_frame_skipped, max_trace_length=max_trace_length, frequency=1, robot=robot)
 
     while not rospy.is_shutdown():
