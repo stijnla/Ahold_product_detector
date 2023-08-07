@@ -5,48 +5,11 @@ from kalmanFilter_velocity import KalmanFilter
 from collections import deque
 import cv2
 from scipy.optimize import linear_sum_assignment
-import random
-from ahold_product_detection.msg import FloatList, ProductList
 from tf.transformations import quaternion_from_euler
 import tf2_ros
 from geometry_msgs.msg import TransformStamped
 import os
-
-
-class rotatedRect():
-
-    def __init__(self, frame, center, width, height, angle, color, thickness) -> None:
-        self.center = center
-        self.width = width
-        self.height = height
-        self.angle = angle
-        self.determine_rect_corners()
-        
-        self.frame = frame
-
-        self.color = color
-        self.thickness = 2
-        
-        cv2.line(self.frame, self.corners[0], self.corners[1], self.color, self.thickness)
-        cv2.line(self.frame, self.corners[1], self.corners[2], self.color, self.thickness)
-        cv2.line(self.frame, self.corners[2], self.corners[3], self.color[::-1], self.thickness)
-        cv2.line(self.frame, self.corners[3], self.corners[0], self.color, self.thickness)
-
-    
-    
-    def determine_rect_corners(self):
-        rot_mat = np.array([[np.cos(self.angle), -np.sin(self.angle)],
-                            [np.sin(self.angle),  np.cos(self.angle)]])
-        w = self.width/2
-        h = self.height/2
-        
-        non_rotated_corner_vectors = np.array([[ w,  h],
-                                   [-w,  h],
-                                   [-w, -h],
-                                   [ w, -h]])
-        rotated_corner_vectors = rot_mat @ non_rotated_corner_vectors.T
-        self.corners = np.array(rotated_corner_vectors.T, dtype=np.int32) + self.center
-
+from opencv_helpers import RotatedRect
 
 
 
@@ -75,7 +38,6 @@ class Tracks:
         return np.array([self.KF.pred_state[0, 0], self.KF.pred_state[1, 0], self.KF.pred_state[2, 0], self.KF.pred_state[3, 0], self.KF.pred_state[4, 0], self.KF.pred_state[5, 0]])
 
 
-
     def calculate_classification_and_score(self):
         # Only pick those that are not None (so if < 20 detections)
         real_classifications = [classification for classification in self.classifications if classification != None]
@@ -89,7 +51,6 @@ class Tracks:
             # Get all values that correspond with this most occurring classification, calculate mean score
             classification_indices = [i for i, classification in enumerate(real_classifications) if classification == self.classification]
             self.score = sum([real_scores[i] for i in classification_indices]) / len(classification_indices)
-
 
     
     @property
@@ -131,7 +92,6 @@ class Tracks:
         self.KF.update(measured_state)
 
 
-
     def update_no_measurement(self, frequency):
         self.frequencies.append(frequency)
         freq = 1/sum([1/f for f in self.frequencies])
@@ -149,9 +109,6 @@ class Tracker:
         self.frequency = frequency
         self.skip_frame_count = 0
         self.previous_measurement_exists = False
-        self.track_colors = [(255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0),
-                            (127, 127, 255), (255, 0, 255), (255, 127, 255),
-                            (127, 0, 255), (127, 0, 127),(127, 10, 255), (0,255, 127)]
         
         self.index_product_to_grasp = None
         self.initial_score_product_to_grasp = None
@@ -165,9 +122,6 @@ class Tracker:
         product_scores = [detected_product[1] for detected_product in detected_products]
         product_classes = [detected_product[0] for detected_product in detected_products]
 
-        
-
-        
 
         current_time = rospy.get_time()
         if self.previous_measurement_exists:
@@ -211,19 +165,19 @@ class Tracker:
         br.sendTransform(t)
 
 
-        
+
     def visualize(self, measurements, product_to_grasp):
-        frame_xz = self.draw_xz_view(measurements, product_to_grasp)  
+        frame_xz = self.draw_birdseye_view(measurements, product_to_grasp)  
         ahold_logo = cv2.resize(cv2.imread(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'ahold_logo.png')), (138, 45))
         frame_xz[0:45, 600-138:600] = ahold_logo
         self.frame = frame_xz
 
 
 
-    def draw_xz_view(self, measurements, product_to_grasp):
+    def draw_birdseye_view(self, measurements, product_to_grasp):
         width = 600
         height = 600
-        frame = createimage(height, width)
+        frame = img = np.ones((width,height,3),np.uint8)*255
         if self.robot:
             cv2.circle(frame, (int(width/2), 100), 10, (0,0,255), 5)
             cv2.line(frame, (int(width/2), 100), (int(width/2) - 20, 140), (0,0,255), 1)
@@ -261,15 +215,12 @@ class Tracker:
             else:
                 x = int(scale * updated_state[0]) + int(width/2)
                 z = int(scale *updated_state[2])  
-                print('speed')
-                print(updated_state[6])
-                print(updated_state[7])
-                print(updated_state[8])
+
             theta = updated_state[4][0]
             
             variance_scale = 3.29 # 99.9 percent confidence
             axis_length = (int(track.KF.pred_err_cov[0,0]*variance_scale), int(track.KF.pred_err_cov[2,2]*variance_scale))
-            rotatedRect(frame, (x, z), 20, 20, theta, (0,0,255), 3)
+            RotatedRect(frame, (x, z), 20, 20, theta, (0,0,255), 3)
             cv2.ellipse(frame, (x, z), axis_length, 0, 0, 360, (0,255,255), 3)
             cv2.putText(frame, str(track.classification), (x + 10, z - 10), cv2.FONT_HERSHEY_COMPLEX_SMALL, 0.6, (0,200,0), 1)
         
@@ -290,44 +241,11 @@ class Tracker:
 
 
 
-    def draw_xy_view(self, measurements):
-        width = 600
-        height = 600
-        frame = createimage(height, width)
-
-        scale = 1000 # convert millimeters to meters
-
-        # Draw the measurements
-        for measurement in measurements:
-
-            x = -int(scale * measurement[0]) + int(width/2)
-            y = int(scale *measurement[1]) + int(height/2)
-            
-            cv2.circle(frame, (x, y), 6, (0,0,0), -1)
-        
-        # Draw the latest updated states
-        for track in self.tracks:
-            updated_state = track.trace[-1]
-            
-            """
-            x = -int(scale * updated_state[0]) + int(width/2)
-            y = int(scale *updated_state[2]) + int(height/2)
-            """
-
-            x = -int(scale * updated_state[0]) + int(width/2)
-            y = int(scale *updated_state[1]) + int(height/2)
-
-            cv2.circle(frame, (x, y), 6, (0,255,0), 3)
-        return frame
-    
-
-
     def choose_desired_product(self):
 
         desired_product = 31 # 93 = hagelslag melk, 31 = gotan chili sauce
         minimun_required_detections = 5
         
-        switch_threshold = 100
         detected_desired_product_scores = []
         for i, track in enumerate(self.tracks):
 
@@ -352,31 +270,6 @@ class Tracker:
                 return desired_track[0]
         return None
 
-
-
-    def calculate_variance_measurements(self, measurement):
-        measurement = np.array(measurement).reshape(6,1)
-        if not hasattr(self, 'mean'):
-            self.mean = np.zeros((6, 1))
-            self.num_measurements = 0
-            self.measurement_variance = np.zeros((6, 6))
-
-        # Update mean
-        self.mean = (self.mean * self.num_measurements + measurement) / (self.num_measurements + 1)
-
-        # Update number of measurements
-        self.num_measurements = self.num_measurements + 1
-
-        # Update measurement_variance
-        np.set_printoptions(suppress = True)
-        if self.num_measurements > 2:
-            self.measurement_variance = ((measurement - self.mean) @ (measurement - self.mean).T + self.measurement_variance * (self.num_measurements - 2)) / (self.num_measurements - 1) 
-        else:
-            self.measurement_variance = ((measurement - self.mean) @ (measurement - self.mean).T) / (self.num_measurements - 1) 
-        
-        #rospy.logwarn((np.round((10**9)*self.measurement_variance, decimals=1)))
-        #print(self.num_measurements)
-    
 
 
     def update(self, measurements, classifications, scores, current_frequency):
@@ -437,19 +330,11 @@ class Tracker:
         # Delete tracks if skipped_frames too large
         self.tracks = [track for track in self.tracks if not track.skipped_frames > self.max_frame_skipped]
 
-        
 
         # Predict next position for each track
         [track.KF.predict() for track in self.tracks]
         
         # Update traces for visualization
         for track in self.tracks:            
-            
             track.trace.append(np.array(track.KF.state))
-
-
-
-def createimage(w,h):
-	img = np.ones((w,h,3),np.uint8)*255
-	return img
 
