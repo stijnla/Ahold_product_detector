@@ -21,7 +21,7 @@ class KalmanFilter:
 		velocity_transition = np.concatenate([np.zeros((6,6)), np.diag(np.ones(6))], axis = 1)
 
 		self.A = np.concatenate([position_transition, velocity_transition])
-		print(self.A)
+		
 		# Control input matrix, models influence of control input on state
 		self.B = np.zeros([12]).reshape(1, 12)
 		
@@ -38,7 +38,7 @@ class KalmanFilter:
 		self.measurementVariance = np.concatenate([var_position, var_velocity])
 
 		# State transition variance
-		var = 10e30
+		var = 10e-12
 		process_variance = np.diag(np.ones((1, 1))) * var
 
 
@@ -46,7 +46,7 @@ class KalmanFilter:
 		self.R = self.measurementVariance
 
 		# Process noise covariance matrix
-		self.Q = self.B * process_variance * self.B.T
+		self.Q = self.A * process_variance * self.A.T
 
 		# Estimated covariance matrix
 		self.P = self.initialStateVariance*np.identity(self.A.shape[0])

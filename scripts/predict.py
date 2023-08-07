@@ -365,7 +365,7 @@ def plot_detection_results(frame, results, model):
 
 def main():
     # Load yolo model weights for detection
-    weight_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'yolo_model', 'nano_supermarket_best.pt')
+    weight_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'yolo_model', 'nano_best.pt')
     model = ultralytics.YOLO(weight_path)
     # Initialize ros node
     rospy.init_node('Product_detector', anonymous=False)
@@ -384,7 +384,7 @@ def main():
     else:
         max_frame_skipped = 3
     max_trace_length = 3
-    max_frame_skipped = 30
+    max_frame_skipped = 10
     tracker = Tracker(dist_threshold=dist_threshold, max_frame_skipped=max_frame_skipped, max_trace_length=max_trace_length, frequency=1, robot=robot)
 
     while not rospy.is_shutdown():

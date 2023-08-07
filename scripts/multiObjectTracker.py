@@ -190,7 +190,7 @@ class Tracker:
         br = tf2_ros.TransformBroadcaster()
         t = TransformStamped()
 
-        x, y, z, theta, phi, psi = product_to_grasp.trace[-1]
+        x, y, z, theta, phi, psi = product_to_grasp.trace[-1][:6]
 
         t.header.stamp = rospy.Time.now()
 
@@ -237,7 +237,7 @@ class Tracker:
         if self.robot:
             scale = 200 # convert millimeters to 0.2meters
         else:
-            scale = 1000 # convert millimeters to meters
+            scale = 500 # convert millimeters to 0.5 meters
 
         # Draw the measurements
         for measurement in measurements:
