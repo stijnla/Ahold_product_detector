@@ -100,7 +100,7 @@ class Tracks:
 
 class Tracker:
 
-    def __init__(self, dist_threshold, max_frame_skipped, max_trace_length, frequency, robot):
+    def __init__(self, dist_threshold, max_frame_skipped, max_trace_length, frequency, robot, requested_yolo_id=-1):
         self.dist_threshold = dist_threshold
         self.max_frame_skipped = max_frame_skipped
         self.max_trace_length = max_trace_length
@@ -113,6 +113,7 @@ class Tracker:
         self.index_product_to_grasp = None
         self.initial_score_product_to_grasp = None
         self.robot = robot
+        self.requested_yolo_id = requested_yolo_id
 
 
 
@@ -133,6 +134,7 @@ class Tracker:
         self.prev_time = current_time
         self.update(product_poses, product_classes, product_scores, 1/float(delta_t)) 
         product_to_grasp = self.choose_desired_product()
+        print(f"product_to_grasp: {product_to_grasp}")
         if product_to_grasp != None:
             self.broadcast_product_to_grasp(product_to_grasp)
         self.visualize(product_poses, product_to_grasp)
@@ -242,20 +244,22 @@ class Tracker:
 
 
     def choose_desired_product(self):
-
-        desired_product = 31 # 93 = hagelslag melk, 31 = gotan chili sauce
+        desired_product = self.requested_yolo_id #31 # 93 = hagelslag melk, 31 = gotan chili sauce
+        print(desired_product)
         minimun_required_detections = 5
         
         detected_desired_product_scores = []
+        detected_desired_product_track_ids = []
         for i, track in enumerate(self.tracks):
 
             if track.classification == desired_product and len(track.classifications) > minimun_required_detections:
                 detected_desired_product_scores.append(track.score)
+                detected_desired_product_track_ids.append(i)
         
         if detected_desired_product_scores != []:
             if self.index_product_to_grasp == None:
                 self.initial_score_product_to_grasp = max(detected_desired_product_scores)
-                self.index_product_to_grasp = self.tracks[detected_desired_product_scores.index(self.initial_score_product_to_grasp)].track_id
+                self.index_product_to_grasp = self.tracks[detected_desired_product_track_ids[0]].track_id
             
         desired_track = []
         if self.index_product_to_grasp != None:

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import rospy
 from ahold_product_detection.srv import *
+from std_msgs.msg import String
 from cv_bridge import CvBridge
 import ultralytics
 from ultralytics.yolo.utils.plotting import Annotator
@@ -365,44 +366,62 @@ def plot_detection_results(frame, results, model):
     frame = annotator.result()  
     return frame
 
-def main():
-    # Load yolo model weights for detection
-    weight_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'yolo_model', 'nano_best.pt')
-    model = ultralytics.YOLO(weight_path)
-    # Initialize ros node
-    rospy.init_node('Product_detector', anonymous=False)
-    listener = tf.TransformListener()
-    robot = rospy.get_param('/robot')
-    ethernet = rospy.get_param('/ethernet')
-    print(robot)
-    print(ethernet)
-    rospy.sleep(1)
+class ProductDetector:
+    def __init__(self) -> None:
+        # Load yolo model weights for detection
+        weight_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'yolo_model', 'nano_supermarket_best.pt')
+        self.model = ultralytics.YOLO(weight_path)
+        # Initialize ros node
+        rospy.init_node('Product_detector', anonymous=False)
+        self.yolo_ids = {
+            "hagelslag": 93,
+            "test": 31
+        }
+        self.listener = tf.TransformListener()
+        self.robot = rospy.get_param('/robot')
+        ethernet = rospy.get_param('/ethernet')
+        print(self.robot)
+        print(ethernet)
+        rospy.sleep(1)
 
-    # Initialize kalman filter for object tracking
-    dist_threshold = 2 # if objects are standing still, choose 0.1 (=10 cm), if movement, choose 0.5
-    ethernet = True
-    if ethernet:
-        max_frame_skipped = 10
-    else:
-        max_frame_skipped = 3
-    max_trace_length = 3
-    max_frame_skipped = 10
-    tracker = Tracker(dist_threshold=dist_threshold, max_frame_skipped=max_frame_skipped, max_trace_length=max_trace_length, frequency=1, robot=robot)
+        # Initialize kalman filter for object tracking
+        self.dist_threshold = 2 # if objects are standing still, choose 0.1 (=10 cm), if movement, choose 0.5
+        ethernet = True
+        if ethernet:
+            self.max_frame_skipped = 10
+        else:
+            self.max_frame_skipped = 3
+        self.max_trace_length = 3
+        self.tracker = Tracker(dist_threshold=self.dist_threshold, max_frame_skipped=self.max_frame_skipped, max_trace_length=self.max_trace_length, frequency=1, robot=self.robot)
+        self.new_tracker = None
 
-    while not rospy.is_shutdown():
-        # Request new message from rgbd_processor
-        message = requestRGBD_client()
+        rospy.Subscriber("product_detector/product_name", String, self.cb)
+    
+    def cb(self, msg):
+        self.requested_product_name = msg.data
+        self.new_tracker = Tracker(dist_threshold=self.dist_threshold, max_frame_skipped=self.max_frame_skipped, max_trace_length=self.max_trace_length, frequency=1, robot=self.robot, requested_yolo_id=self.yolo_ids[msg.data])
         
-        if message != None:
-            # Detect, localize and transform the detected products
-            frame, products, pointcloud_messages = search_products(message, model, listener, robot)                       
-            resized_frame = cv2.resize(frame, (1067, 600))
-            # Track the detected products with Kalman Filter
-            tracker.process_detections(products)
-            cv2.imshow("Result", np.hstack((resized_frame, tracker.frame)))
-            cv2.waitKey(1)
+    def run(self):
+        while not rospy.is_shutdown():
+            # Request new message from rgbd_processor
+            message = requestRGBD_client()
+            
+            if message != None:
+                # Detect, localize and transform the detected products
+                frame, products, pointcloud_messages = search_products(message, self.model, self.listener, self.robot)                       
+                resized_frame = cv2.resize(frame, (1067, 600))
+                # Track the detected products with Kalman Filter
+                self.tracker.process_detections(products)
+                cv2.imshow("Result", np.hstack((resized_frame, self.tracker.frame)))
+                cv2.waitKey(1)
+
+            if self.new_tracker is not None:
+                del self.tracker
+                self.tracker = self.new_tracker
+                self.new_tracker = None
+
             
 
-
 if __name__ == '__main__':
-    main()
+    detector = ProductDetector()
+    detector.run()
