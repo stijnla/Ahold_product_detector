@@ -1,0 +1,13 @@
+<launch>
+  <arg name="align_depth"       default="true"/>
+
+  <include file="$(find realsense2_camera)/launch/rs_camera.launch">
+    <arg name="align_depth" value="$(arg align_depth)"/>
+    <arg name="filters" value="pointcloud"/>
+  </include>
+  <param name="robot" type="boolean" value="0" />
+  <param name="ethernet" type="boolean" value="0" />
+
+  <node name="camera_data_processor" pkg="ahold_product_detection" type="process_rgbd.py" output="screen"/>
+  <node name="shelf_detector" pkg="ahold_product_detection" type="predict_shelf.py" output="screen"/>
+</launch>
