@@ -123,6 +123,8 @@ def translate_pixel_coordinates_to_cartesian_coordinates_in_camera_frame(u, v, e
 def depth_bounding_box_to_pointcloud(depth_image, depth_bounding_box, intrinsic_camera_matrix, frame_id):
     """Returns pointcloud and pointcloud message, created from the depth data of the bounding box"""
 
+    # TODO: SPEED UP THIS FUNCTION!!!
+
     # Get depth data of bounding box
     product_depth_data =  depth_image[depth_bounding_box[1]:depth_bounding_box[3], depth_bounding_box[0]:depth_bounding_box[2]]
 
