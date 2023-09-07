@@ -63,6 +63,7 @@ class Tracks:
         self.frequencies = []
         self.classification = None
         self.score = None
+        self.range_threshold = 2.0
         if classification == classification and score == score:
             self.classifications = self.update_cache(self.classifications, classification)
             self.scores = self.update_cache(self.scores, score)
@@ -72,7 +73,11 @@ class Tracks:
     def prediction(self):
         return np.array([self.KF.pred_state[0, 0], self.KF.pred_state[1, 0], self.KF.pred_state[2, 0], self.KF.pred_state[3, 0], self.KF.pred_state[4, 0], self.KF.pred_state[5, 0]])
 
-
+    @property
+    def in_range(self):
+        pos = self.trace[-1]
+        dist = np.linalg.norm(pos[:2])
+        return dist < self.range_threshold
 
     def calculate_classification_and_score(self):
         # Only pick those that are not None (so if < 20 detections)
@@ -110,12 +115,8 @@ class Tracks:
         if classification == classification and score == score:
             self.classifications = self.update_cache(self.classifications, classification)
             self.scores = self.update_cache(self.scores, score)
-            rospy.logwarn(self.classifications)
-            rospy.logwarn(self.scores)
 
             self.calculate_classification_and_score()
-            rospy.logwarn("Most occuring class = " + str(self.classification))
-            rospy.logwarn("Mean score of this class = " + str(self.score))
 
         # Update the state transition matrix based on the passed time
         if self.frequencies == []:
@@ -137,7 +138,7 @@ class Tracks:
 
 class Tracker:
 
-    def __init__(self, dist_threshold, max_frame_skipped, max_trace_length, frequency, robot, requested_yolo_id=-1):
+    def __init__(self, dist_threshold, max_frame_skipped, max_trace_length, frequency, robot, requested_yolo_id=33):
         self.dist_threshold = dist_threshold
         self.max_frame_skipped = max_frame_skipped
         self.max_trace_length = max_trace_length
@@ -157,16 +158,7 @@ class Tracker:
 
 
 
-    def process_detections(self, data):
-        detected_products = [msg.data for msg in data.data]
-        product_poses = [detected_product[2::] for detected_product in detected_products]
-        product_scores = [detected_product[1] for detected_product in detected_products]
-        product_classes = [detected_product[0] for detected_product in detected_products]
-
-        
-
-        
-
+    def process_detections(self, xyz, classes, scores):
         current_time = rospy.get_time()
         if self.previous_measurement_exists:
             delta_t = current_time - self.prev_time
@@ -175,12 +167,11 @@ class Tracker:
         
         self.previous_measurement_exists = True
         self.prev_time = current_time
-        self.update(product_poses, product_classes, product_scores, 1/float(delta_t)) 
+        self.update(xyz, classes, scores, 1/float(delta_t)) 
         product_to_grasp = self.choose_desired_product()
-        print(f"product_to_grasp: {product_to_grasp}")
         if product_to_grasp != None:
             self.broadcast_product_to_grasp(product_to_grasp)
-        self.visualize(product_poses, product_to_grasp)
+        self.visualize(xyz, product_to_grasp)
 
 
 
@@ -318,7 +309,6 @@ class Tracker:
 
     def choose_desired_product(self):
         desired_product = self.requested_yolo_id #31 # 93 = hagelslag melk, 31 = gotan chili sauce
-        print(desired_product)
         minimun_required_detections = 5
         
         switch_threshold = 100
@@ -326,14 +316,14 @@ class Tracker:
         detected_desired_product_track_ids = []
         for i, track in enumerate(self.tracks):
 
-            if track.classification == desired_product and len(track.classifications) > minimun_required_detections:
+            if track.classification == desired_product and track.score > 0.5 and track.in_range:
                 detected_desired_product_scores.append(track.score)
                 detected_desired_product_track_ids.append(i)
         
         if detected_desired_product_scores != []:
             if self.index_product_to_grasp == None:
-                self.initial_score_product_to_grasp = max(detected_desired_product_scores)
-                self.index_product_to_grasp = self.tracks[detected_desired_product_track_ids[0]].track_id
+                initial_product_to_grasp_idx = np.argmax(detected_desired_product_scores)
+                self.index_product_to_grasp = self.tracks[detected_desired_product_track_ids[initial_product_to_grasp_idx]].track_id
             
         desired_track = []
         if self.index_product_to_grasp != None:

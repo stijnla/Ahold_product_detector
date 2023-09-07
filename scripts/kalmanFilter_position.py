@@ -82,7 +82,6 @@ class KalmanFilter:
 
 		# Use measurement to refine prediction
 		kalman_gain = self.pred_err_cov*self.H.T*np.linalg.pinv(self.H*self.pred_err_cov*self.H.T+self.R)
-		print((measurement - (self.H*self.pred_state)))
 		self.state = self.pred_state + kalman_gain*(measurement - (self.H*self.pred_state))
 		self.err_cov = (np.identity(self.err_cov.shape[0]) - kalman_gain*self.H)*self.pred_err_cov
 
