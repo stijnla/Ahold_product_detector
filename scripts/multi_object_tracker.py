@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
 import rospy
 import numpy as np
-from kalmanFilter_position import KalmanFilter, StateSpaceModel
+from kalman_filter import KalmanFilter, StateSpaceModel
 from collections import deque
 import cv2
 from scipy.optimize import linear_sum_assignment
-import random
-from ahold_product_detection.msg import FloatList, ProductList
 from tf.transformations import quaternion_from_euler
 import tf2_ros
 from geometry_msgs.msg import TransformStamped
@@ -14,13 +12,10 @@ import os
 from opencv_helpers import RotatedRect
 
 
-
-
-
 class Tracks:
 
     def __init__(self, measurement, classification, score, track_id, frequency):
-        state = np.array(measurement) # initial state, speeds are both 0
+        state = np.array(measurement) 
         self.KF = KalmanFilter(init_state=state, frequency=frequency, model=StateSpaceModel.load_model("../state_space_models/position.yaml"))
         self.trace = deque(maxlen=20)
         self.track_id = track_id
@@ -114,10 +109,7 @@ class Tracker:
         self.frequency = frequency
         self.skip_frame_count = 0
         self.previous_measurement_exists = False
-        self.track_colors = [(255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0),
-                            (127, 127, 255), (255, 0, 255), (255, 127, 255),
-                            (127, 0, 255), (127, 0, 127),(127, 10, 255), (0,255, 127)]
-        
+
         self.index_product_to_grasp = None
         self.initial_score_product_to_grasp = None
         self.robot = robot
@@ -170,7 +162,7 @@ class Tracker:
 
         
     def visualize(self, measurements, product_to_grasp):
-        frame_xz = self.plot_xz_view(measurements, product_to_grasp)  
+        frame_xz = self.plot_birdseye_view(measurements, product_to_grasp)  
         ahold_logo = cv2.resize(cv2.imread(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'ahold_logo.png')), (138, 45))
         frame_xz[0:45, 600-138:600] = ahold_logo
         self.frame = frame_xz
@@ -179,10 +171,10 @@ class Tracker:
 
 
 
-    def plot_xz_view(self, measurements, product_to_grasp):
+    def plot_birdseye_view(self, measurements, product_to_grasp):
         width = 600
         height = 600
-        frame = np.ones((w,h,3),np.uint8)*255
+        frame = np.ones((width,height,3),np.uint8)*255
         if self.robot:
             cv2.circle(frame, (int(width/2), 100), 10, (0,0,255), 5)
             cv2.line(frame, (int(width/2), 100), (int(width/2) - 20, 140), (0,0,255), 1)

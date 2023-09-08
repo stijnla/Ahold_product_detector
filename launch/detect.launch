@@ -7,5 +7,5 @@
     <arg name="enable_pointcloud" value="$(arg enable_pointcloud)"/>
   </include>
 
-  <node name="product_detector" pkg="ahold_product_detection" type="predict.py" output="screen"/>
+  <node name="product_detector" pkg="ahold_product_detection" type="detector.py" output="screen"/>
 </launch>

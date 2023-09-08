@@ -1,21 +1,17 @@
 #!/usr/bin/env python3
 import rospy
-from ahold_product_detection.srv import *
-from std_msgs.msg import String
+import cv2
 from cv_bridge import CvBridge
 import ultralytics
 from ultralytics.yolo.utils.plotting import Annotator
-import cv2
 import os
 import numpy as np
-from tf.transformations import quaternion_from_euler, euler_from_quaternion
-import tf2_ros
-import tf
-from multiObjectTracker import Tracker
+from multi_object_tracker import Tracker
 
-import rospy
+# message and service imports
 from sensor_msgs.msg import Image, PointCloud2, CameraInfo
-
+from jsk_recognition_msgs.msg import BoundingBox, BoundingBoxArrayWithCameraInfo
+from ahold_product_detection.srv import *
 
 class CameraData:
     def __init__(self) -> None:
@@ -56,14 +52,13 @@ class CameraData:
     def data(self):
         time_stamp = self.rgb_msg.header.stamp
         rgb_image = self.bridge.imgmsg_to_cv2(self.rgb_msg, desired_encoding="bgr8")
-        depth_image = self.bridge.imgmsg_to_cv2(
-            self.depth_msg, desired_encoding="passthrough"
-        )
+        depth_image = self.bridge.imgmsg_to_cv2(self.depth_msg, desired_encoding="passthrough")
         pointcloud = self.pointcloud_msg
+        intrinsics = self.intrinsics
 
         # TODO: timesync or check if the time_stamps are not too far apart (acceptable error)
 
-        return rgb_image, depth_image, pointcloud, time_stamp
+        return rgb_image, depth_image, pointcloud, time_stamp, intrinsics
 
 
 class ProductDetector:
@@ -101,9 +96,32 @@ class ProductDetector:
         cv2.imshow("Result", frame)
         cv2.waitKey(1)
 
+    def generate_detection_message(self, results, camera_intrinsics, time_stamp):
+        # Get resulting bounding boxes defined as (x, y, width, height)
+        rgb_bounding_boxes = results[0].boxes.xywh.cpu().numpy()
+        scores = results[0].boxes.conf.cpu().numpy()
+        classes = results[0].boxes.cls.cpu().numpy()
+
+        bbox_msgs = []
+        for i, bbox in enumerate(rgb_bounding_boxes):
+            bbox_msg = BoundingBox()
+            bbox_msg.pose.position.x, bbox_msg.pose.position.y, bbox_msg.pose.position.z = (bbox[0], bbox[1], 0)
+            bbox_msg.pose.orientation.x, bbox_msg.pose.orientation.y, bbox_msg.pose.orientation.z, bbox_msg.pose.orientation.w = (0, 0, 0, 1)
+            bbox_msg.dimensions.x, bbox_msg.dimensions.y, bbox_msg.dimensions.z = (bbox[2], bbox[3], 0)
+            bbox_msg.value = scores[i]
+            bbox_msg.label = classes[i]
+            bbox_msgs.append(bbox_msg)
+
+        detection_results_msg = BoundingBoxArrayWithCameraInfo()
+        detection_results_msg.header.stamp = time_stamp
+        detection_results_msg.boxes = bbox_msgs
+        detection_results_msg.camera_info = camera_intrinsics
+        return detection_results_msg
+    
+
     def run(self):
         try:
-            rgb_image, depth_image, pointcloud, time_stamp = self.camera.data
+            rgb_image, depth_image, pointcloud, time_stamp, camera_intrinsics = self.camera.data
         except Exception as e:
             print(e)
             return
@@ -117,8 +135,11 @@ class ProductDetector:
             device=0,
         )
 
-        # Get resulting bounding boxes defined as (x, y, width, height)
+        detection_results_msg = self.generate_detection_message(results, camera_intrinsics, time_stamp)
+
         rgb_bounding_boxes = results[0].boxes.xyxy.cpu().numpy()
+        scores = results[0].boxes.conf.cpu().numpy()
+        classes = results[0].boxes.cls.cpu().numpy()
 
         # Relate rgb_bounding_boxes to depth image
         width_scale = depth_image.shape[1] / rgb_image.shape[1]
@@ -149,8 +170,7 @@ class ProductDetector:
             orientation = [0, 0, 0]
             xyz_detections.append(list(median_z * scaled_xyz_vector) + orientation)
 
-        scores = results[0].boxes.conf.cpu().numpy()
-        classes = results[0].boxes.cls.cpu().numpy()
+        
 
         # Track the detected products with Kalman Filter
         self.tracker.process_detections(xyz_detections, classes, scores)

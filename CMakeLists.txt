@@ -18,10 +18,6 @@ find_package(catkin REQUIRED COMPONENTS
 
 add_message_files(
   FILES
-  FloatList.msg
-  ProductList.msg
-  PointCloudList.msg
-  ProductClass.msg
 )
 
 ## Generate services in the 'srv' folder
