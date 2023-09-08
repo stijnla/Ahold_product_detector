@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import rospy
 import numpy as np
-from kalmanFilter_position import KalmanFilter
+from kalmanFilter_position import KalmanFilter, StateSpaceModel
 from collections import deque
 import cv2
 from scipy.optimize import linear_sum_assignment
@@ -11,41 +11,8 @@ from tf.transformations import quaternion_from_euler
 import tf2_ros
 from geometry_msgs.msg import TransformStamped
 import os
+from opencv_helpers import RotatedRect
 
-
-class rotatedRect():
-
-    def __init__(self, frame, center, width, height, angle, color, thickness) -> None:
-        self.center = center
-        self.width = width
-        self.height = height
-        self.angle = angle
-        self.determine_rect_corners()
-        
-        self.frame = frame
-
-        self.color = color
-        self.thickness = 2
-        
-        cv2.line(self.frame, self.corners[0], self.corners[1], self.color, self.thickness)
-        cv2.line(self.frame, self.corners[1], self.corners[2], self.color, self.thickness)
-        cv2.line(self.frame, self.corners[2], self.corners[3], self.color[::-1], self.thickness)
-        cv2.line(self.frame, self.corners[3], self.corners[0], self.color, self.thickness)
-
-    
-    
-    def determine_rect_corners(self):
-        rot_mat = np.array([[np.cos(self.angle), -np.sin(self.angle)],
-                            [np.sin(self.angle),  np.cos(self.angle)]])
-        w = self.width/2
-        h = self.height/2
-        
-        non_rotated_corner_vectors = np.array([[ w,  h],
-                                   [-w,  h],
-                                   [-w, -h],
-                                   [ w, -h]])
-        rotated_corner_vectors = rot_mat @ non_rotated_corner_vectors.T
-        self.corners = np.array(rotated_corner_vectors.T, dtype=np.int32) + self.center
 
 
 
@@ -54,7 +21,7 @@ class Tracks:
 
     def __init__(self, measurement, classification, score, track_id, frequency):
         state = np.array(measurement) # initial state, speeds are both 0
-        self.KF = KalmanFilter(init_state=state, frequency=frequency, measurement_variance=0.1)
+        self.KF = KalmanFilter(init_state=state, frequency=frequency, model=StateSpaceModel.load_model("../state_space_models/position.yaml"))
         self.trace = deque(maxlen=20)
         self.track_id = track_id
         self.skipped_frames = 0
@@ -203,17 +170,19 @@ class Tracker:
 
         
     def visualize(self, measurements, product_to_grasp):
-        frame_xz = self.draw_xz_view(measurements, product_to_grasp)  
+        frame_xz = self.plot_xz_view(measurements, product_to_grasp)  
         ahold_logo = cv2.resize(cv2.imread(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'ahold_logo.png')), (138, 45))
         frame_xz[0:45, 600-138:600] = ahold_logo
         self.frame = frame_xz
+        cv2.imshow('birds-eye view', frame_xz)
+        cv2.waitKey(1)
 
 
 
-    def draw_xz_view(self, measurements, product_to_grasp):
+    def plot_xz_view(self, measurements, product_to_grasp):
         width = 600
         height = 600
-        frame = createimage(height, width)
+        frame = np.ones((w,h,3),np.uint8)*255
         if self.robot:
             cv2.circle(frame, (int(width/2), 100), 10, (0,0,255), 5)
             cv2.line(frame, (int(width/2), 100), (int(width/2) - 20, 140), (0,0,255), 1)
@@ -254,7 +223,7 @@ class Tracker:
 
             variance_scale = 3.29 # 99.9 percent confidence
             axis_length = (int(track.KF.pred_err_cov[0,0]*variance_scale), int(track.KF.pred_err_cov[2,2]*variance_scale))
-            rotatedRect(frame, (x, z), 20, 20, theta, (0,0,255), 3)
+            RotatedRect(frame, (x, z), 20, 20, theta, (0,0,255), 3)
             cv2.ellipse(frame, (x, z), axis_length, 0, 0, 360, (0,255,255), 3)
             cv2.putText(frame, str(track.classification), (x + 10, z - 10), cv2.FONT_HERSHEY_COMPLEX_SMALL, 0.6, (0,200,0), 1)
         
@@ -274,37 +243,6 @@ class Tracker:
         return frame
 
 
-
-    def draw_xy_view(self, measurements):
-        width = 600
-        height = 600
-        frame = createimage(height, width)
-
-        scale = 1000 # convert millimeters to meters
-
-        # Draw the measurements
-        for measurement in measurements:
-
-            x = -int(scale * measurement[0]) + int(width/2)
-            y = int(scale *measurement[1]) + int(height/2)
-            
-            cv2.circle(frame, (x, y), 6, (0,0,0), -1)
-        
-        # Draw the latest updated states
-        for track in self.tracks:
-            updated_state = track.trace[-1]
-            
-            """
-            x = -int(scale * updated_state[0]) + int(width/2)
-            y = int(scale *updated_state[2]) + int(height/2)
-            """
-
-            x = -int(scale * updated_state[0]) + int(width/2)
-            y = int(scale *updated_state[1]) + int(height/2)
-
-            cv2.circle(frame, (x, y), 6, (0,255,0), 3)
-        return frame
-    
 
 
     def choose_desired_product(self):
@@ -360,8 +298,7 @@ class Tracker:
         else:
             self.measurement_variance = ((measurement - self.mean) @ (measurement - self.mean).T) / (self.num_measurements - 1) 
         
-        #rospy.logwarn((np.round((10**9)*self.measurement_variance, decimals=1)))
-        #print(self.num_measurements)
+
     
 
 
@@ -429,13 +366,6 @@ class Tracker:
         [track.KF.predict() for track in self.tracks]
         
         # Update traces for visualization
-        for track in self.tracks:            
-            
+        for track in self.tracks:                
             track.trace.append(np.array(track.KF.state))
-
-
-
-def createimage(w,h):
-	img = np.ones((w,h,3),np.uint8)*255
-	return img
 
