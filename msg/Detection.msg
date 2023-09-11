@@ -3,3 +3,4 @@ jsk_recognition_msgs/BoundingBoxArrayWithCameraInfo boundingboxarraywithcamerain
 sensor_msgs/PointCloud2 pointcloud
 sensor_msgs/Image depth_image
 sensor_msgs/Image rgb_image
+float64 rotation

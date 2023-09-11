@@ -9,11 +9,18 @@ import numpy as np
 from multi_object_tracker import Tracker
 
 # message and service imports
-from std_msgs.msg import Header
 from sensor_msgs.msg import Image, PointCloud2, CameraInfo
 from jsk_recognition_msgs.msg import BoundingBox, BoundingBoxArrayWithCameraInfo, BoundingBoxArray
 from ahold_product_detection.srv import *
 from ahold_product_detection.msg import Detection
+
+from tf.transformations import quaternion_from_euler, euler_from_quaternion
+import tf2_ros
+import tf
+from opencv_helpers import RotatedRectCorners, RotatedRect
+from copy import copy
+from rotation_compensation import RotationCompensation
+
 
 class CameraData:
     def __init__(self) -> None:
@@ -50,13 +57,15 @@ class CameraData:
 
     def rgb_callback(self, data):
         self.rgb_msg = data
+        
 
     @property
     def data(self):
         time_stamp = self.rgb_msg.header.stamp
         rgb_image = self.bridge.imgmsg_to_cv2(self.rgb_msg, desired_encoding="bgr8")
         depth_image = self.bridge.imgmsg_to_cv2(self.depth_msg, desired_encoding="passthrough")
-        pointcloud_msg = self.pointcloud_msg
+        #pointcloud_msg = self.pointcloud_msg
+        pointcloud_msg = PointCloud2()
         intrinsics_msg = self.intrinsics_msg
         depth_msg = self.depth_msg
         rgb_msg = self.rgb_msg
@@ -65,13 +74,14 @@ class CameraData:
         return rgb_image, depth_image, pointcloud_msg, time_stamp, intrinsics_msg, depth_msg, rgb_msg
 
 
+
 class ProductDetector:
     def __init__(self) -> None:
         self.camera = CameraData()
+        self.rotation_compensation = RotationCompensation()
+        self.rotate = True
         self.rate = rospy.Rate(30)
-        weight_path = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)), "..", "yolo_model", "best.pt"
-        )
+        weight_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "yolo_model", "best.pt")
         self.model = ultralytics.YOLO(weight_path)
         self.pub = rospy.Publisher('/detection_results', Detection, queue_size=10)
         # Initialize kalman filter for object tracking
@@ -82,6 +92,7 @@ class ProductDetector:
             frequency=30,
             robot=False,
         )
+
 
     def plot_detection_results(self, frame, results):
         for r in results:
@@ -100,15 +111,23 @@ class ProductDetector:
         cv2.imshow("Result", frame)
         cv2.waitKey(1)
 
-    def generate_detection_message(self, results, camera_intrinsics_msg, time_stamp, pointcloud_msg, depth_msg, rgb_msg, rgb_image, depth_image):
+
+    def show_rotated_results(self, image, boxes, angle):
+        for box in boxes:
+            centers_dims = [(int(box[2*j]), int(box[2*j+1])) for j in range(2)]
+            RotatedRect(image, centers_dims[0], centers_dims[1][0], centers_dims[1][1], -angle, (0, 0, 255), 2)
+        cv2.imshow("rotated results", image)
+
+
+    def generate_detection_message(self, results, camera_intrinsics_msg, time_stamp, pointcloud_msg, depth_msg, rgb_msg, depth_image, rgb_image, angle):
         detection_msg = Detection()
         # Get resulting bounding boxes defined as (x, y, width, height)
         rgb_bounding_boxes = results[0].boxes.xywh.cpu().numpy()
+        
         scores = results[0].boxes.conf.cpu().numpy()
         classes = results[0].boxes.cls.cpu().numpy()
 
         bbox_msgs = BoundingBoxArray()
-
         for i, bbox in enumerate(rgb_bounding_boxes):
             bbox_msg = BoundingBox()
             bbox_msg.header.stamp = time_stamp
@@ -124,21 +143,30 @@ class ProductDetector:
         detection_results_msg.boxes = bbox_msgs
         detection_results_msg.camera_info = camera_intrinsics_msg
         
+        
         # detection msg
         detection_msg.header.stamp = time_stamp
         detection_msg.boundingboxarraywithcamerainfo = detection_results_msg
         detection_msg.pointcloud = pointcloud_msg
 
-        detection_msg.depth_image = depth_msg
-        detection_msg.rgb_image = rgb_msg
+        bridge = CvBridge()
+        detection_msg.depth_image = bridge.cv2_to_imgmsg(depth_image)
+        detection_msg.rgb_image = bridge.cv2_to_imgmsg(rgb_image)
+        detection_msg.rotation = angle
+
         return detection_msg
     
+
 
     def run(self):
         try:
             rgb_image, depth_image, pointcloud_msg, time_stamp, camera_intrinsics_msg, depth_msg, rgb_msg = self.camera.data
         except Exception as e:
             return
+        orig_rgb_image = copy(rgb_image)
+
+        if self.rotate:
+            rgb_image, depth_image = self.rotation_compensation.rotate_images(rgb_image, depth_image, time_stamp)
 
         # predict
         results = self.model.predict(
@@ -149,7 +177,7 @@ class ProductDetector:
             device=0,
         )
 
-        detection_results_msg = self.generate_detection_message(results, camera_intrinsics_msg, time_stamp, pointcloud_msg, depth_msg, rgb_msg, rgb_image, depth_image)
+        detection_results_msg = self.generate_detection_message(results, camera_intrinsics_msg, time_stamp, pointcloud_msg, depth_msg, rgb_msg, depth_image, rgb_image, self.rotation_compensation.phi)
         self.pub.publish(detection_results_msg)
 
         """
@@ -190,7 +218,13 @@ class ProductDetector:
         # Track the detected products with Kalman Filter
         self.tracker.process_detections(xyz_detections, classes, scores)
         """
+
+        # visualization    
         self.plot_detection_results(rgb_image, results)
+        if self.rotate:
+            boxes, angle = self.rotation_compensation.rotate_bounding_boxes(results[0].boxes.xywh.cpu().numpy(), rgb_image)
+            self.show_rotated_results(orig_rgb_image, boxes, angle)
+
 
 import time
 

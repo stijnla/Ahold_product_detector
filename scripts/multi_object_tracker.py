@@ -186,7 +186,7 @@ class Tracker:
             cv2.line(frame, (int(width/2), 0), (int(width/2) + 20, 40), (0,0,255), 1)
             cv2.putText(frame, 'Camera', (int(width/2)-40, 80), cv2.FONT_HERSHEY_COMPLEX_SMALL, 0.8, (0,0,255), 0)
         if self.robot:
-            scale = 200 # convert millimeters to 0.2meters
+            scale = 300 # convert millimeters to 0.5meters
         else:
             scale = 1000 # convert millimeters to meters
 

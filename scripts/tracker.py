@@ -20,11 +20,11 @@ class ProductTracker():
     def __init__(self) -> None:
         self.pose_estimation = PoseData()
         self.tracker = Tracker(
-            dist_threshold=2,
+            dist_threshold=0.1,
             max_frame_skipped=5,
             max_trace_length=3,
             frequency=30,
-            robot=False,
+            robot=True,
         )
         self.rate = rospy.Rate(30)
     
