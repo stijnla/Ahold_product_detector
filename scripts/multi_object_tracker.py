@@ -144,7 +144,7 @@ class Tracker:
         t.header.stamp = rospy.Time.now()
 
         if self.robot:
-            t.header.frame_id = "base_link"
+            t.header.frame_id = "panda_link0"
         else:
             t.header.frame_id = "camera_color_optical_frame"
         t.child_frame_id = 'desired_product'

@@ -1,9 +1,29 @@
 #!/usr/bin/env python3
 import rospy
 from ahold_product_detection.msg import Detection, ProductPose, ProductPoseArray
+import tf
+from tf.transformations import quaternion_from_euler, euler_from_quaternion
+from geometry_msgs.msg import PoseStamped, Point, Quaternion
 import numpy as np
 from cv_bridge import CvBridge
 from copy import copy
+
+
+# Helpers
+def _it(self):
+    yield self.x
+    yield self.y
+    yield self.z
+Point.__iter__ = _it
+
+
+def _it(self):
+    yield self.x
+    yield self.y
+    yield self.z
+    yield self.w
+Quaternion.__iter__ = _it
+
 
 class DetectorData():
     def __init__(self) -> None:
@@ -18,7 +38,30 @@ class PoseEstimator():
     def __init__(self) -> None:
         self.detection = DetectorData()
         self.rate = rospy.Rate(30)
+        self.tf_listener = tf.TransformListener()
         self.pub = rospy.Publisher('/pose_estimation_results', ProductPoseArray, queue_size=10)
+    
+    def transform_poses(self, product_poses):
+        for pose in product_poses.poses:
+            ros_pose = PoseStamped()
+            ros_pose.header.stamp = product_poses.header.stamp
+            ros_pose.header.frame_id = "camera_color_optical_frame"
+            ros_pose.pose.position = Point(x=pose.x, y=pose.y, z=pose.z)
+            ros_pose.pose.orientation = Quaternion(*quaternion_from_euler(pose.theta, pose.phi, pose.psi))
+            try:
+                ros_pose_transformed = self.tf_listener.transformPose(
+                    "panda_link0", ros_pose
+                )
+            except Exception as e:
+                rospy.logerr("couldn't transform correctly ", e)
+
+            pose.x = ros_pose.pose.position.x
+            pose.y = ros_pose.pose.position.y
+            pose.z = ros_pose.pose.position.z
+            pose.theta, pose.phi, pose.psi = euler_from_quaternion(list(ros_pose_transformed.pose.orientation))
+            pose.header.frame_id = "panda_link0"
+
+        return
 
     def run(self):
         # read data when available
@@ -93,6 +136,10 @@ class PoseEstimator():
                 product_poses.poses.append(product_pose)
 
                 xyz_detections.append(xyz_detection)
+
+            # Transform to non-moving frame
+            self.transform_poses(product_poses)
+
             self.pub.publish(product_poses)
 
 import time
