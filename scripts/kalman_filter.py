@@ -51,16 +51,7 @@ class KalmanFilter:
 		self.H = model.H
 		self.processVariance = model.processVariance
 		self.measurementVariance = model.measurementVariance
-		print("A:")
-		print(self.A)
-		print("B:")
-		print(self.B)
-		print("H:")
-		print(self.H)
-		print("process variance:")
-		print(self.processVariance)
-		print("measurement variance:")
-		print(self.measurementVariance)
+
 		# Observation noise covariance matrix (Measured with one object with 2500 measurements)
 		self.R = self.measurementVariance
 

@@ -44,6 +44,7 @@ class ProductTracker():
         xyz_detections = [[p.x, p.y, p.z, p.theta, p.phi, p.psi] for p in product_poses.poses]
         labels = [p.label for p in product_poses.poses]
         scores = [p.score for p in product_poses.poses]
+
         self.tracker.process_detections(xyz_detections, labels, scores)
 
 

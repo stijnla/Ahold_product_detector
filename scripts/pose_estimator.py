@@ -28,22 +28,6 @@ Quaternion.__iter__ = _it
 
 
 
-# Helpers
-def _it(self):
-    yield self.x
-    yield self.y
-    yield self.z
-Point.__iter__ = _it
-
-
-def _it(self):
-    yield self.x
-    yield self.y
-    yield self.z
-    yield self.w
-Quaternion.__iter__ = _it
-
-
 class DetectorData():
     def __init__(self) -> None:
         self.subscriber = rospy.Subscriber("/detection_results", Detection, self.callback)
@@ -91,102 +75,84 @@ class PoseEstimator():
 
         return transformed_poses
 
+    
+    def estimate_bbox_depth(self, depth_bounding_box, depth_image):
+        # Get depth data bounding box
+        depth_data_bounding_box = depth_image[
+            int(depth_bounding_box[1]) : int(depth_bounding_box[3]),
+            int(depth_bounding_box[0]) : int(depth_bounding_box[2]),
+        ]
 
-    def transform_poses(self, product_poses):
-        transformed_poses = ProductPoseArray()
-        transformed_poses.header = product_poses.header
-        for pose in product_poses.poses:
-            ros_pose = PoseStamped()
-            ros_pose.header.stamp = product_poses.header.stamp
-            ros_pose.header.frame_id = "camera_color_optical_frame"
-            ros_pose.pose.position = Point(x=pose.x, y=pose.y, z=pose.z)
-            ros_pose.pose.orientation = Quaternion(*quaternion_from_euler(pose.theta, pose.phi, pose.psi))
-            try:
-                ros_pose_transformed = self.tf_listener.transformPose(
-                    "base_link", ros_pose
-                )
-            except Exception as e:
-                rospy.logerr("couldn't transform correctly ", e)
+        # only get median from nonzero set (zeroes are not sensor values)
+        return np.median(depth_data_bounding_box[depth_data_bounding_box != 0]) / 1000
 
-            new_pose = ProductPose()
-            new_pose.x = ros_pose_transformed.pose.position.x
-            new_pose.y = ros_pose_transformed.pose.position.y
-            new_pose.z = ros_pose_transformed.pose.position.z
-            new_pose.theta, pose.phi, pose.psi = euler_from_quaternion(list(ros_pose_transformed.pose.orientation))
-            new_pose.header = pose.header
-            new_pose.header.frame_id = "base_link"
-            new_pose.label = pose.label
-            new_pose.score = pose.score
-            transformed_poses.poses.append(new_pose)
+    def estimate_pose_bounding_box(self, z, bounding_box, camera_intrinsics):
+        # Get bounding box center pixels
+        bbox_center_u = int((bounding_box[2] + bounding_box[0]) / 2)
+        bbox_center_v = int((bounding_box[3] + bounding_box[1]) / 2)
 
+        # Calculate xyz vector with pixels (u, v) and camera intrinsics
+        pixel_vector = np.array([bbox_center_u, bbox_center_v, 1])
+        scaled_xyz_vector = np.linalg.inv(camera_intrinsics) @ pixel_vector.T
+        orientation = [0, 0, 0]
 
-
-        return transformed_poses
-
-
+        return list(z * scaled_xyz_vector) + orientation
+        
     def run(self):
         # read data when available
         try:
             depth_image = self.detection.bridge.imgmsg_to_cv2(self.detection.data.depth_image, desired_encoding="passthrough")
             rgb_image = self.detection.bridge.imgmsg_to_cv2(self.detection.data.rgb_image)
-            bounding_boxes = self.detection.data.boundingboxarraywithcamerainfo.boxes
-            camera_intrinsics = np.array(self.detection.data.boundingboxarraywithcamerainfo.camera_info.K).reshape((3, 3))
+            rotated_bounding_boxes = self.detection.data.rotated_boxes.boxes
+            camera_intrinsics = np.array(self.detection.data.rotated_boxes.camera_info.K).reshape((3, 3))
             rotation_angle = self.detection.data.rotation
+            predicted_boxes = self.detection.data.predicted_boxes.boxes
         except Exception as e:
             return
         
-        rgb_bounding_boxes = []
+        new_rotated_bounding_boxes = []
+        new_predicted_bounding_boxes = []
+
         scores = []
         labels = []
 
         # read bounding box data
-        for box in bounding_boxes.boxes:
-            new_box  = np.array([box.pose.position.x - box.dimensions.x/2, box.pose.position.y - box.dimensions.y/2, box.pose.position.x + box.dimensions.x/2, box.pose.position.y + box.dimensions.y/2]) #xywh
+        for i, box in enumerate(rotated_bounding_boxes.boxes):
+            predicted_box = predicted_boxes[i]
+            new_rotated_box  = np.array([box.pose.position.x - box.dimensions.x/2, box.pose.position.y - box.dimensions.y/2, box.pose.position.x + box.dimensions.x/2, box.pose.position.y + box.dimensions.y/2]) #xywh
+            new_predicted_box  = np.array([predicted_box.pose.position.x - predicted_box.dimensions.x/2, predicted_box.pose.position.y - predicted_box.dimensions.y/2, predicted_box.pose.position.x + predicted_box.dimensions.x/2, predicted_box.pose.position.y + predicted_box.dimensions.y/2]) #xywh
             score = box.value
             label = box.label
-            rgb_bounding_boxes.append(new_box)
+            new_rotated_bounding_boxes.append(new_rotated_box)
+            new_predicted_bounding_boxes.append(new_predicted_box)
             scores.append(score)
             labels.append(label)
 
         
-        if rgb_bounding_boxes != []:
+        if new_rotated_bounding_boxes != []:
 
-            depth_bounding_boxes = np.array(copy(rgb_bounding_boxes))
-            
+            depth_bounding_boxes = np.array(copy(new_rotated_bounding_boxes)) # used to estimate depth out of rotated depth image
+            rgb_bounding_boxes = np.array(copy(new_predicted_bounding_boxes)) # used to determine center in original rgb image
+
             # Convert to 3D
-            xyz_detections = []
             product_poses = ProductPoseArray()
             product_poses.header.stamp = self.detection.data.header.stamp
 
             for i, depth_bounding_box in enumerate(depth_bounding_boxes):
+                rgb_bounding_box = rgb_bounding_boxes[i]
                 product_pose = ProductPose()
 
-                # Get depth data bounding box
-                depth_data_bounding_box = depth_image[
-                    int(depth_bounding_box[1]) : int(depth_bounding_box[3]),
-                    int(depth_bounding_box[0]) : int(depth_bounding_box[2]),
-                ]
+                median_z = self.estimate_bbox_depth(depth_bounding_box, depth_image)
 
-                # only get median from nonzero set (zeroes are not sensor values)
-                median_z = np.median(depth_data_bounding_box[depth_data_bounding_box != 0]) / 1000
+                if not np.isnan(median_z):
+                    # depth exists and non-zero 
+                    xyz_detection = self.estimate_pose_bounding_box(median_z, rgb_bounding_box, camera_intrinsics)
+            
+                    product_pose.x, product_pose.y, product_pose.z, product_pose.theta, product_pose.phi, product_pose.psi = xyz_detection
+                    product_pose.score = scores[i]
+                    product_pose.label = labels[i]
 
-                # Get bounding box center pixels
-                bbox_center_u = int((depth_bounding_box[2] + depth_bounding_box[0]) / 2)
-                bbox_center_v = int((depth_bounding_box[3] + depth_bounding_box[1]) / 2)
-
-                # Calculate xyz vector with pixels (u, v) and camera intrinsics
-                pixel_vector = np.array([bbox_center_u, bbox_center_v, 1])
-                scaled_xyz_vector = np.linalg.inv(camera_intrinsics) @ pixel_vector.T
-                orientation = [0, 0, 0]
-                xyz_detection = list(median_z * scaled_xyz_vector) + orientation
-
-                product_pose.x, product_pose.y, product_pose.z, product_pose.theta, product_pose.phi, product_pose.psi = xyz_detection
-                product_pose.score = scores[i]
-                product_pose.label = labels[i]
-
-                product_poses.poses.append(product_pose)
-
-                xyz_detections.append(xyz_detection)
+                    product_poses.poses.append(product_pose)
 
             # Transform to non-moving frame
             transformed_poses = self.transform_poses(product_poses)

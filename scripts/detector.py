@@ -85,6 +85,7 @@ class ProductDetector:
         self.model = ultralytics.YOLO(weight_path)
         self.pub = rospy.Publisher('/detection_results', Detection, queue_size=10)
         # Initialize kalman filter for object tracking
+        """
         self.tracker = Tracker(
             dist_threshold=2,
             max_frame_skipped=5,
@@ -92,6 +93,7 @@ class ProductDetector:
             frequency=30,
             robot=False,
         )
+        """
 
 
     def plot_detection_results(self, frame, results):
@@ -119,36 +121,48 @@ class ProductDetector:
         cv2.imshow("rotated results", image)
 
 
+    def create_bbox_message(self, bbox, label, score, stamp):
+        bbox_msg = BoundingBox()
+            
+        bbox_msg.header.stamp = stamp
+        bbox_msg.pose.position.x, bbox_msg.pose.position.y, bbox_msg.pose.position.z = (np.float64(bbox[0]), np.float64(bbox[1]), np.float64(0))
+        bbox_msg.pose.orientation.x, bbox_msg.pose.orientation.y, bbox_msg.pose.orientation.z, bbox_msg.pose.orientation.w = (np.float64(0), np.float64(0), np.float64(0), np.float64(1))
+        bbox_msg.dimensions.x, bbox_msg.dimensions.y, bbox_msg.dimensions.z = (np.float64(bbox[2]), np.float64(bbox[3]), np.float64(0))
+        bbox_msg.value = np.float32(score)
+        bbox_msg.label = np.uint32(label)
+        return bbox_msg
+
+
     def generate_detection_message(self, results, camera_intrinsics_msg, time_stamp, pointcloud_msg, depth_msg, rgb_msg, depth_image, rgb_image, angle):
         detection_msg = Detection()
         # Get resulting bounding boxes defined as (x, y, width, height)
         rgb_bounding_boxes = results[0].boxes.xywh.cpu().numpy()
-        
+        rotated_boxes, angle = self.rotation_compensation.rotate_bounding_boxes(results[0].boxes.xywh.cpu().numpy(), rgb_image)
+
         scores = results[0].boxes.conf.cpu().numpy()
-        classes = results[0].boxes.cls.cpu().numpy()
+        labels = results[0].boxes.cls.cpu().numpy()
 
-        bbox_msgs = BoundingBoxArray()
-        for i, bbox in enumerate(rgb_bounding_boxes):
-            bbox_msg = BoundingBox()
-            bbox_msg.header.stamp = time_stamp
-            bbox_msg.pose.position.x, bbox_msg.pose.position.y, bbox_msg.pose.position.z = (np.float64(bbox[0]), np.float64(bbox[1]), np.float64(0))
-            bbox_msg.pose.orientation.x, bbox_msg.pose.orientation.y, bbox_msg.pose.orientation.z, bbox_msg.pose.orientation.w = (np.float64(0), np.float64(0), np.float64(0), np.float64(1))
-            bbox_msg.dimensions.x, bbox_msg.dimensions.y, bbox_msg.dimensions.z = (np.float64(bbox[2]), np.float64(bbox[3]), np.float64(0))
-            bbox_msg.value = np.float32(scores[i])
-            bbox_msg.label = np.uint32(classes[i])
-            bbox_msgs.boxes.append(bbox_msg)
+        predicted_bbox_msgs = BoundingBoxArray()
+        rotated_bbox_msgs = BoundingBoxArray()
+        for i, bbox in enumerate(rgb_bounding_boxes):   
+            # bounding boxes in rotated image        
+            predicted_bbox_msg = self.create_bbox_message(bbox, labels[i], scores[i], time_stamp) 
+            # bounding boxes projected back to original image
+            rotated_bbox_msg = self.create_bbox_message(rotated_boxes[i], labels[i], scores[i], time_stamp) 
+            predicted_bbox_msgs.boxes.append(predicted_bbox_msg)
+            rotated_bbox_msgs.boxes.append(rotated_bbox_msg)
 
-        detection_results_msg = BoundingBoxArrayWithCameraInfo()
-        detection_results_msg.header.stamp = time_stamp
-        detection_results_msg.boxes = bbox_msgs
-        detection_results_msg.camera_info = camera_intrinsics_msg
+        rotated_boxes_msg = BoundingBoxArrayWithCameraInfo()
+        rotated_boxes_msg.header.stamp = time_stamp
+        rotated_boxes_msg.boxes = rotated_bbox_msgs
+        rotated_boxes_msg.camera_info = camera_intrinsics_msg
         
         
         # detection msg
         detection_msg.header.stamp = time_stamp
-        detection_msg.boundingboxarraywithcamerainfo = detection_results_msg
+        detection_msg.rotated_boxes = rotated_boxes_msg
         detection_msg.pointcloud = pointcloud_msg
-
+        detection_msg.predicted_boxes = predicted_bbox_msgs
         bridge = CvBridge()
         detection_msg.depth_image = bridge.cv2_to_imgmsg(depth_image)
         detection_msg.rgb_image = bridge.cv2_to_imgmsg(rgb_image)
@@ -177,7 +191,7 @@ class ProductDetector:
             device=0,
         )
 
-        detection_results_msg = self.generate_detection_message(results, camera_intrinsics_msg, time_stamp, pointcloud_msg, depth_msg, rgb_msg, depth_image, rgb_image, self.rotation_compensation.phi)
+        detection_results_msg = self.generate_detection_message(results, camera_intrinsics_msg, time_stamp, pointcloud_msg, depth_msg, rgb_msg, depth_image, orig_rgb_image, self.rotation_compensation.phi)
         self.pub.publish(detection_results_msg)
 
         """
@@ -222,8 +236,8 @@ class ProductDetector:
         # visualization    
         self.plot_detection_results(rgb_image, results)
         if self.rotate:
-            boxes, angle = self.rotation_compensation.rotate_bounding_boxes(results[0].boxes.xywh.cpu().numpy(), rgb_image)
-            self.show_rotated_results(orig_rgb_image, boxes, angle)
+            rotated_boxes, angle = self.rotation_compensation.rotate_bounding_boxes(results[0].boxes.xywh.cpu().numpy(), rgb_image)
+            self.show_rotated_results(orig_rgb_image, rotated_boxes, angle)
 
 
 import time
