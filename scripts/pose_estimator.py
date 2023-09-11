@@ -42,6 +42,8 @@ class PoseEstimator():
         self.pub = rospy.Publisher('/pose_estimation_results', ProductPoseArray, queue_size=10)
     
     def transform_poses(self, product_poses):
+        transformed_poses = ProductPoseArray()
+        transformed_poses.header = product_poses.header
         for pose in product_poses.poses:
             ros_pose = PoseStamped()
             ros_pose.header.stamp = product_poses.header.stamp
@@ -50,18 +52,25 @@ class PoseEstimator():
             ros_pose.pose.orientation = Quaternion(*quaternion_from_euler(pose.theta, pose.phi, pose.psi))
             try:
                 ros_pose_transformed = self.tf_listener.transformPose(
-                    "panda_link0", ros_pose
+                    "base_link", ros_pose
                 )
             except Exception as e:
                 rospy.logerr("couldn't transform correctly ", e)
 
-            pose.x = ros_pose.pose.position.x
-            pose.y = ros_pose.pose.position.y
-            pose.z = ros_pose.pose.position.z
-            pose.theta, pose.phi, pose.psi = euler_from_quaternion(list(ros_pose_transformed.pose.orientation))
-            pose.header.frame_id = "panda_link0"
+            new_pose = ProductPose()
+            new_pose.x = ros_pose_transformed.pose.position.x
+            new_pose.y = ros_pose_transformed.pose.position.y
+            new_pose.z = ros_pose_transformed.pose.position.z
+            new_pose.theta, pose.phi, pose.psi = euler_from_quaternion(list(ros_pose_transformed.pose.orientation))
+            new_pose.header = pose.header
+            new_pose.header.frame_id = "base_link"
+            new_pose.label = pose.label
+            new_pose.score = pose.score
+            transformed_poses.poses.append(new_pose)
 
-        return
+
+
+        return transformed_poses
 
     def run(self):
         # read data when available
@@ -138,9 +147,9 @@ class PoseEstimator():
                 xyz_detections.append(xyz_detection)
 
             # Transform to non-moving frame
-            self.transform_poses(product_poses)
+            transformed_poses = self.transform_poses(product_poses)
 
-            self.pub.publish(product_poses)
+            self.pub.publish(transformed_poses)
 
 import time
 
@@ -150,7 +159,7 @@ if __name__ == "__main__":
 
     
     t0 = time.time()
-    while True:
+    while not rospy.is_shutdown():
         pose_estimator.run()
         pose_estimator.rate.sleep()
         print(f"product pose estimation rate: {1/(time.time() - t0)}")

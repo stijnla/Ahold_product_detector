@@ -100,7 +100,7 @@ class Tracks:
 
 class Tracker:
 
-    def __init__(self, dist_threshold, max_frame_skipped, max_trace_length, frequency, robot, requested_yolo_id=33):
+    def __init__(self, dist_threshold, max_frame_skipped, max_trace_length, frequency, robot, requested_yolo_id=28):
         self.dist_threshold = dist_threshold
         self.max_frame_skipped = max_frame_skipped
         self.max_trace_length = max_trace_length
@@ -144,7 +144,7 @@ class Tracker:
         t.header.stamp = rospy.Time.now()
 
         if self.robot:
-            t.header.frame_id = "panda_link0"
+            t.header.frame_id = "base_link"
         else:
             t.header.frame_id = "camera_color_optical_frame"
         t.child_frame_id = 'desired_product'
