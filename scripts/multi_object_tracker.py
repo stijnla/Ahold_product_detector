@@ -100,7 +100,7 @@ class Tracks:
 
 class Tracker:
 
-    def __init__(self, dist_threshold, max_frame_skipped, max_trace_length, frequency, robot, requested_yolo_id=33):
+    def __init__(self, dist_threshold, max_frame_skipped, max_trace_length, frequency, robot, requested_yolo_id=28):
         self.dist_threshold = dist_threshold
         self.max_frame_skipped = max_frame_skipped
         self.max_trace_length = max_trace_length

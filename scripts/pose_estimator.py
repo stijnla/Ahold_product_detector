@@ -1,12 +1,32 @@
 #!/usr/bin/env python3
 import rospy
 from ahold_product_detection.msg import Detection, ProductPose, ProductPoseArray
+import tf
+from tf.transformations import quaternion_from_euler, euler_from_quaternion
+from geometry_msgs.msg import PoseStamped, Point, Quaternion
 import numpy as np
 from cv_bridge import CvBridge
 from copy import copy
 import tf
 from tf.transformations import quaternion_from_euler, euler_from_quaternion
 from geometry_msgs.msg import PoseStamped, Point, Quaternion
+
+# Helpers
+def _it(self):
+    yield self.x
+    yield self.y
+    yield self.z
+Point.__iter__ = _it
+
+
+def _it(self):
+    yield self.x
+    yield self.y
+    yield self.z
+    yield self.w
+Quaternion.__iter__ = _it
+
+
 
 # Helpers
 def _it(self):
@@ -39,6 +59,37 @@ class PoseEstimator():
         self.rate = rospy.Rate(30)
         self.tf_listener = tf.TransformListener()
         self.pub = rospy.Publisher('/pose_estimation_results', ProductPoseArray, queue_size=10)
+    
+    def transform_poses(self, product_poses):
+        transformed_poses = ProductPoseArray()
+        transformed_poses.header = product_poses.header
+        for pose in product_poses.poses:
+            ros_pose = PoseStamped()
+            ros_pose.header.stamp = product_poses.header.stamp
+            ros_pose.header.frame_id = "camera_color_optical_frame"
+            ros_pose.pose.position = Point(x=pose.x, y=pose.y, z=pose.z)
+            ros_pose.pose.orientation = Quaternion(*quaternion_from_euler(pose.theta, pose.phi, pose.psi))
+            try:
+                ros_pose_transformed = self.tf_listener.transformPose(
+                    "base_link", ros_pose
+                )
+            except Exception as e:
+                rospy.logerr("couldn't transform correctly ", e)
+
+            new_pose = ProductPose()
+            new_pose.x = ros_pose_transformed.pose.position.x
+            new_pose.y = ros_pose_transformed.pose.position.y
+            new_pose.z = ros_pose_transformed.pose.position.z
+            new_pose.theta, pose.phi, pose.psi = euler_from_quaternion(list(ros_pose_transformed.pose.orientation))
+            new_pose.header = pose.header
+            new_pose.header.frame_id = "base_link"
+            new_pose.label = pose.label
+            new_pose.score = pose.score
+            transformed_poses.poses.append(new_pose)
+
+
+
+        return transformed_poses
 
 
     def transform_poses(self, product_poses):
