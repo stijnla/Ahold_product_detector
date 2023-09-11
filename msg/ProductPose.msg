@@ -1,0 +1,9 @@
+Header header
+float64 x
+float64 y
+float64 z
+float64 theta
+float64 phi
+float64 psi
+uint32 label
+float32 score

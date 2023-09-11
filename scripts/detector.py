@@ -9,9 +9,11 @@ import numpy as np
 from multi_object_tracker import Tracker
 
 # message and service imports
+from std_msgs.msg import Header
 from sensor_msgs.msg import Image, PointCloud2, CameraInfo
-from jsk_recognition_msgs.msg import BoundingBox, BoundingBoxArrayWithCameraInfo
+from jsk_recognition_msgs.msg import BoundingBox, BoundingBoxArrayWithCameraInfo, BoundingBoxArray
 from ahold_product_detection.srv import *
+from ahold_product_detection.msg import Detection
 
 class CameraData:
     def __init__(self) -> None:
@@ -37,6 +39,7 @@ class CameraData:
 
     def intrinsics_callback(self, data):
         # Get camera intrinsics from topic
+        self.intrinsics_msg = data #np.array(data.K).reshape((3, 3))
         self.intrinsics = np.array(data.K).reshape((3, 3))
 
     def depth_callback(self, data):
@@ -53,12 +56,13 @@ class CameraData:
         time_stamp = self.rgb_msg.header.stamp
         rgb_image = self.bridge.imgmsg_to_cv2(self.rgb_msg, desired_encoding="bgr8")
         depth_image = self.bridge.imgmsg_to_cv2(self.depth_msg, desired_encoding="passthrough")
-        pointcloud = self.pointcloud_msg
-        intrinsics = self.intrinsics
-
+        pointcloud_msg = self.pointcloud_msg
+        intrinsics_msg = self.intrinsics_msg
+        depth_msg = self.depth_msg
+        rgb_msg = self.rgb_msg
         # TODO: timesync or check if the time_stamps are not too far apart (acceptable error)
 
-        return rgb_image, depth_image, pointcloud, time_stamp, intrinsics
+        return rgb_image, depth_image, pointcloud_msg, time_stamp, intrinsics_msg, depth_msg, rgb_msg
 
 
 class ProductDetector:
@@ -69,7 +73,7 @@ class ProductDetector:
             os.path.dirname(os.path.abspath(__file__)), "..", "yolo_model", "best.pt"
         )
         self.model = ultralytics.YOLO(weight_path)
-
+        self.pub = rospy.Publisher('/detection_results', Detection, queue_size=10)
         # Initialize kalman filter for object tracking
         self.tracker = Tracker(
             dist_threshold=2,
@@ -96,34 +100,44 @@ class ProductDetector:
         cv2.imshow("Result", frame)
         cv2.waitKey(1)
 
-    def generate_detection_message(self, results, camera_intrinsics, time_stamp):
+    def generate_detection_message(self, results, camera_intrinsics_msg, time_stamp, pointcloud_msg, depth_msg, rgb_msg, rgb_image, depth_image):
+        detection_msg = Detection()
         # Get resulting bounding boxes defined as (x, y, width, height)
         rgb_bounding_boxes = results[0].boxes.xywh.cpu().numpy()
         scores = results[0].boxes.conf.cpu().numpy()
         classes = results[0].boxes.cls.cpu().numpy()
 
-        bbox_msgs = []
+        bbox_msgs = BoundingBoxArray()
+
         for i, bbox in enumerate(rgb_bounding_boxes):
             bbox_msg = BoundingBox()
-            bbox_msg.pose.position.x, bbox_msg.pose.position.y, bbox_msg.pose.position.z = (bbox[0], bbox[1], 0)
-            bbox_msg.pose.orientation.x, bbox_msg.pose.orientation.y, bbox_msg.pose.orientation.z, bbox_msg.pose.orientation.w = (0, 0, 0, 1)
-            bbox_msg.dimensions.x, bbox_msg.dimensions.y, bbox_msg.dimensions.z = (bbox[2], bbox[3], 0)
-            bbox_msg.value = scores[i]
-            bbox_msg.label = classes[i]
-            bbox_msgs.append(bbox_msg)
+            bbox_msg.header.stamp = time_stamp
+            bbox_msg.pose.position.x, bbox_msg.pose.position.y, bbox_msg.pose.position.z = (np.float64(bbox[0]), np.float64(bbox[1]), np.float64(0))
+            bbox_msg.pose.orientation.x, bbox_msg.pose.orientation.y, bbox_msg.pose.orientation.z, bbox_msg.pose.orientation.w = (np.float64(0), np.float64(0), np.float64(0), np.float64(1))
+            bbox_msg.dimensions.x, bbox_msg.dimensions.y, bbox_msg.dimensions.z = (np.float64(bbox[2]), np.float64(bbox[3]), np.float64(0))
+            bbox_msg.value = np.float32(scores[i])
+            bbox_msg.label = np.uint32(classes[i])
+            bbox_msgs.boxes.append(bbox_msg)
 
         detection_results_msg = BoundingBoxArrayWithCameraInfo()
         detection_results_msg.header.stamp = time_stamp
         detection_results_msg.boxes = bbox_msgs
-        detection_results_msg.camera_info = camera_intrinsics
-        return detection_results_msg
+        detection_results_msg.camera_info = camera_intrinsics_msg
+        
+        # detection msg
+        detection_msg.header.stamp = time_stamp
+        detection_msg.boundingboxarraywithcamerainfo = detection_results_msg
+        detection_msg.pointcloud = pointcloud_msg
+
+        detection_msg.depth_image = depth_msg
+        detection_msg.rgb_image = rgb_msg
+        return detection_msg
     
 
     def run(self):
         try:
-            rgb_image, depth_image, pointcloud, time_stamp, camera_intrinsics = self.camera.data
+            rgb_image, depth_image, pointcloud_msg, time_stamp, camera_intrinsics_msg, depth_msg, rgb_msg = self.camera.data
         except Exception as e:
-            print(e)
             return
 
         # predict
@@ -135,8 +149,10 @@ class ProductDetector:
             device=0,
         )
 
-        detection_results_msg = self.generate_detection_message(results, camera_intrinsics, time_stamp)
+        detection_results_msg = self.generate_detection_message(results, camera_intrinsics_msg, time_stamp, pointcloud_msg, depth_msg, rgb_msg, rgb_image, depth_image)
+        self.pub.publish(detection_results_msg)
 
+        """
         rgb_bounding_boxes = results[0].boxes.xyxy.cpu().numpy()
         scores = results[0].boxes.conf.cpu().numpy()
         classes = results[0].boxes.cls.cpu().numpy()
@@ -169,12 +185,11 @@ class ProductDetector:
             scaled_xyz_vector = np.linalg.inv(self.camera.intrinsics) @ pixel_vector.T
             orientation = [0, 0, 0]
             xyz_detections.append(list(median_z * scaled_xyz_vector) + orientation)
-
         
 
         # Track the detected products with Kalman Filter
         self.tracker.process_detections(xyz_detections, classes, scores)
-
+        """
         self.plot_detection_results(rgb_image, results)
 
 import time
@@ -186,5 +201,5 @@ if __name__ == "__main__":
     while True:
         detector.run()
         detector.rate.sleep()
-        print(f"fps {1/(time.time() - t0)}")
+        print(f"product detection rate: {1/(time.time() - t0)}")
         t0 = time.time()

@@ -1,16 +1,110 @@
 #!/usr/bin/env python3
 import rospy
+from ahold_product_detection.msg import Detection, ProductPose, ProductPoseArray
+import numpy as np
+from cv_bridge import CvBridge
+from copy import copy
 
 class DetectorData():
     def __init__(self) -> None:
-        self.subscriber = rospy.Subscriber("/camera/aligned_depth_to_color/image_raw", Image, self.callback)
+        self.subscriber = rospy.Subscriber("/detection_results", Detection, self.callback)
+        self.data = None
+        self.bridge = CvBridge()
 
-    def callback(self):
-        pass
+    def callback(self, data):
+        self.data = data
+
+class PoseEstimator():
+    def __init__(self) -> None:
+        self.detection = DetectorData()
+        self.rate = rospy.Rate(30)
+        self.pub = rospy.Publisher('/pose_estimation_results', ProductPoseArray, queue_size=10)
+
+    def run(self):
+        # read data when available
+        try:
+            depth_image = self.detection.bridge.imgmsg_to_cv2(self.detection.data.depth_image, desired_encoding="passthrough")
+            rgb_image = self.detection.bridge.imgmsg_to_cv2(self.detection.data.rgb_image, desired_encoding="bgr8")
+            bounding_boxes = self.detection.data.boundingboxarraywithcamerainfo.boxes
+            camera_intrinsics = np.array(self.detection.data.boundingboxarraywithcamerainfo.camera_info.K).reshape((3, 3))
+        except Exception as e:
+            return
+        
+        rgb_bounding_boxes = []
+        scores = []
+        labels = []
+
+        # read bounding box data
+        for box in bounding_boxes.boxes:
+            #new_box  = np.array([box.pose[0], box.pose[1], box.dimensions[0], box.dimensions[1]]) #xywh
+            new_box  = np.array([box.pose.position.x - box.dimensions.x/2, box.pose.position.y - box.dimensions.y/2, box.pose.position.x + box.dimensions.x/2, box.pose.position.y + box.dimensions.y/2]) #xywh
+            score = box.value
+            label = box.label
+            rgb_bounding_boxes.append(new_box)
+            scores.append(score)
+            labels.append(label)
+
+        
+        if rgb_bounding_boxes != []:
+            
+            # Relate rgb_bounding_boxes to depth image
+            """
+            rospy.logwarn(str(depth_image.shape) + ' = ' + str(rgb_image.shape))
+            width_scale = depth_image.shape[1] / rgb_image.shape[1]
+            height_scale = depth_image.shape[0] / rgb_image.shape[0]
+            scale = np.array([width_scale, height_scale, width_scale, height_scale])
+            depth_bounding_boxes = np.array(copy(rgb_bounding_boxes))
+            depth_bounding_boxes[:, :4] *= scale
+            depth_bounding_boxes = depth_bounding_boxes.astype(int)
+            """
+
+            depth_bounding_boxes = np.array(copy(rgb_bounding_boxes))
+            
+            # Convert to 3D
+            xyz_detections = []
+            product_poses = ProductPoseArray()
+            product_poses.header.stamp = self.detection.data.header.stamp
+
+            for i, depth_bounding_box in enumerate(depth_bounding_boxes):
+                product_pose = ProductPose()
+
+                # Get depth data bounding box
+                depth_data_bounding_box = depth_image[
+                    int(depth_bounding_box[1]) : int(depth_bounding_box[3]),
+                    int(depth_bounding_box[0]) : int(depth_bounding_box[2]),
+                ]
+
+                median_z = np.median(depth_data_bounding_box) / 1000
+
+                # Get bounding box center pixels
+                bbox_center_u = int((depth_bounding_box[2] + depth_bounding_box[0]) / 2)
+                bbox_center_v = int((depth_bounding_box[3] + depth_bounding_box[1]) / 2)
+
+                # Calculate xyz vector with pixels (u, v) and camera intrinsics
+                pixel_vector = np.array([bbox_center_u, bbox_center_v, 1])
+                scaled_xyz_vector = np.linalg.inv(camera_intrinsics) @ pixel_vector.T
+                orientation = [0, 0, 0]
+                xyz_detection = list(median_z * scaled_xyz_vector) + orientation
+
+                product_pose.x, product_pose.y, product_pose.z, product_pose.theta, product_pose.phi, product_pose.psi = xyz_detection
+                product_pose.score = scores[i]
+                product_pose.label = labels[i]
+
+                product_poses.poses.append(product_pose)
+
+                xyz_detections.append(xyz_detection)
+            self.pub.publish(product_poses)
+
+import time
 
 if __name__ == "__main__":
     rospy.init_node("product_pose_estimator")
+    pose_estimator = PoseEstimator()
+
     
+    t0 = time.time()
     while True:
-        print("running")
-        rospy.sleep(5)
+        pose_estimator.run()
+        pose_estimator.rate.sleep()
+        print(f"product pose estimation rate: {1/(time.time() - t0)}")
+        t0 = time.time()

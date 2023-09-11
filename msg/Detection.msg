@@ -1,0 +1,5 @@
+Header header
+jsk_recognition_msgs/BoundingBoxArrayWithCameraInfo boundingboxarraywithcamerainfo
+sensor_msgs/PointCloud2 pointcloud
+sensor_msgs/Image depth_image
+sensor_msgs/Image rgb_image
