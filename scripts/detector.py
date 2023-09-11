@@ -198,7 +198,7 @@ if __name__ == "__main__":
     rospy.init_node("product_detector")
     detector = ProductDetector()
     t0 = time.time()
-    while True:
+    while not rospy.is_shutdown():
         detector.run()
         detector.rate.sleep()
         print(f"product detection rate: {1/(time.time() - t0)}")

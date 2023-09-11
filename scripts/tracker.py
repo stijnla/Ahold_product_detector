@@ -44,7 +44,7 @@ if __name__ == "__main__":
     rospy.init_node("product_tracker")
     product_tracker = ProductTracker()
     t0 = time.time()
-    while True:
+    while not rospy.is_shutdown():
         product_tracker.run()
         product_tracker.rate.sleep()
         print(f"product tracking rate: {1/(time.time() - t0)}")
