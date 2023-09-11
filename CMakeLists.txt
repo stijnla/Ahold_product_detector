@@ -28,6 +28,7 @@ add_message_files(
 add_service_files(
    FILES
    RequestRGBD.srv
+   ChangeProduct.srv
 )
 
 ## Generate actions in the 'action' folder

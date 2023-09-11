@@ -5,6 +5,7 @@ import tf2_ros
 import tf
 from multi_object_tracker import Tracker
 from ahold_product_detection.msg import ProductPoseArray
+from ahold_product_detection.srv import ChangeProduct, ChangeProductResponse
 import time
 
 class PoseData():
@@ -27,6 +28,12 @@ class ProductTracker():
             robot=True,
         )
         self.rate = rospy.Rate(30)
+        self.change_product = rospy.Service("change_product", ChangeProduct, self.change_product_cb)
+
+    def change_product_cb(self, request):
+        rospy.loginfo(f"Changing tracked product from {self.tracker.requested_yolo_id} to {request.product_id}")
+        self.tracker.requested_yolo_id = request.product_id
+        return ChangeProductResponse(success=True)
     
     def run(self):
         try:
