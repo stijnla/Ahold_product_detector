@@ -1,8 +1,4 @@
 Header header
-jsk_recognition_msgs/BoundingBoxArrayWithCameraInfo rotated_boxes
-jsk_recognition_msgs/BoundingBoxArray predicted_boxes
-
-sensor_msgs/PointCloud2 pointcloud
+ahold_product_detection/RotatedBoundingBox[] detections
 sensor_msgs/Image depth_image
 sensor_msgs/Image rgb_image
-float64 rotation
