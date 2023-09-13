@@ -1,8 +1,0 @@
-bool image_type
-
----
-sensor_msgs/Image[] images
-sensor_msgs/PointCloud2 pointcloud
-sensor_msgs/CameraInfo intrinsics
-realsense2_camera/Extrinsics extrinsics
-bool data_available

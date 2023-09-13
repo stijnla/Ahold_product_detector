@@ -55,6 +55,7 @@ class Tracks:
             classification_indices = [i for i, classification in enumerate(real_classifications) if classification == self.classification]
             self.score = sum([real_scores[i] for i in classification_indices]) / len(classification_indices)
 
+
     
     @property
     def variance(self):
@@ -87,11 +88,8 @@ class Tracks:
             self.KF.update_matrices(freq)
 
         # Update the state based on the new measurements
-        measurement = np.array(measurement).reshape(6, 1)
-        measured_velocity = measurement - self.previous_measurement
-        measured_state = np.concatenate([measurement, measured_velocity])
-        self.previous_measurement = measurement
-        self.KF.update(measured_state)
+        self.KF.update(np.array(measurement).reshape(6, 1))
+
 
 
     def update_no_measurement(self, frequency):
@@ -111,6 +109,7 @@ class Tracker:
         self.frequency = frequency
         self.skip_frame_count = 0
         self.previous_measurement_exists = False
+
         self.index_product_to_grasp = None
         self.initial_score_product_to_grasp = None
         self.robot = robot
@@ -129,7 +128,6 @@ class Tracker:
         self.prev_time = current_time
         self.update(xyz, classes, scores, 1/float(delta_t)) 
         product_to_grasp = self.choose_desired_product()
-        print(f"product_to_grasp: {product_to_grasp}")
         if product_to_grasp != None:
             self.broadcast_product_to_grasp(product_to_grasp)
         self.visualize(xyz, product_to_grasp)
@@ -141,7 +139,7 @@ class Tracker:
         br = tf2_ros.TransformBroadcaster()
         t = TransformStamped()
 
-        x, y, z, theta, phi, psi = product_to_grasp.trace[-1][:6]
+        x, y, z, theta, phi, psi = product_to_grasp.trace[-1]
 
         t.header.stamp = rospy.Time.now()
 
@@ -162,7 +160,7 @@ class Tracker:
         br.sendTransform(t)
 
 
-
+        
     def visualize(self, measurements, product_to_grasp):
         frame_xz = self.plot_birdseye_view(measurements, product_to_grasp)  
         ahold_logo = cv2.resize(cv2.imread(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'ahold_logo.png')), (138, 45))
@@ -190,7 +188,7 @@ class Tracker:
         if self.robot:
             scale = 300 # convert millimeters to 0.5meters
         else:
-            scale = 500 # convert millimeters to 0.5 meters
+            scale = 1000 # convert millimeters to meters
 
         # Draw the measurements
         for measurement in measurements:
@@ -205,18 +203,16 @@ class Tracker:
         
         # Draw the latest updated states
         for track in self.tracks:
-            #TODO: make variable???
-            #updated_state = track.trace[-1]
-            updated_state = track.KF.pred_state
+            updated_state = track.trace[-1]
+
             if self.robot:
                 x = int(scale * updated_state[1]) + int(width/2)
                 z = int(scale *updated_state[0])  + 100
             else:
                 x = int(scale * updated_state[0]) + int(width/2)
                 z = int(scale *updated_state[2])  
-
             theta = updated_state[4][0]
-            
+
             variance_scale = 3.29 # 99.9 percent confidence
             axis_length = (int(track.KF.pred_err_cov[0,0]*variance_scale), int(track.KF.pred_err_cov[2,2]*variance_scale))
             RotatedRect(frame, (x, z), 20, 20, theta, (0,0,255), 3)
@@ -245,6 +241,7 @@ class Tracker:
         desired_product = self.requested_yolo_id #31 # 93 = hagelslag melk, 31 = gotan chili sauce
         minimun_required_detections = 5
         
+        switch_threshold = 100
         detected_desired_product_scores = []
         detected_desired_product_track_ids = []
         for i, track in enumerate(self.tracks):
@@ -321,7 +318,7 @@ class Tracker:
                 self.tracks[track_idx].skipped_frames = 0
                 self.tracks[track_idx].frequencies = []
     
-                #self.calculate_variance_measurements(measurements[measurement_idx])
+                self.calculate_variance_measurements(measurements[measurement_idx])
             
             # Create new tracks for measurements without track
             assigned_det_idxs = [det_idx for _, det_idx in assignment]
@@ -355,6 +352,7 @@ class Tracker:
         # Delete tracks if skipped_frames too large
         self.tracks = [track for track in self.tracks if not track.skipped_frames > self.max_frame_skipped]
 
+        
 
         # Predict next position for each track
         [track.KF.predict() for track in self.tracks]
@@ -362,4 +360,3 @@ class Tracker:
         # Update traces for visualization
         for track in self.tracks:                
             track.trace.append(np.array(track.KF.state))
-
