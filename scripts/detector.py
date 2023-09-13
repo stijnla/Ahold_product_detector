@@ -153,6 +153,7 @@ class ProductDetector:
             save=False,
             verbose=False,
             device=0,
+            agnostic_nms=True
         )
 
 

@@ -19,7 +19,7 @@ class Tracks:
         self.KF = KalmanFilter(init_state=state, frequency=frequency, model=StateSpaceModel.load_model("../state_space_models/position.yaml"))
         self.trace = deque(maxlen=20)
         self.track_id = track_id
-        self.skipped_frames = 0
+        self.skipped_frames = 00
         self.classifications = 20*[None]
         self.scores = 20*[None]
         self.frequencies = []
