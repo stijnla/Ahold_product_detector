@@ -1,0 +1,4 @@
+Header header
+ahold_product_detection/RotatedBoundingBox[] detections
+sensor_msgs/Image depth_image
+sensor_msgs/Image rgb_image

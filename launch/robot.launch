@@ -1,6 +1,5 @@
 <launch>
-<param name="robot" type="boolean" value="1" />
-<param name="ethernet" type="boolean" value="1" />
-  <node name="rgbd_processor" pkg="ahold_product_detection" type="process_rgbd.py" output="screen"/>
-  <node name="product_detector" pkg="ahold_product_detection" type="predict.py" output="screen"/>
+  <node name="product_detector" pkg="ahold_product_detection" type="detector.py" output="screen"/>
+  <node name="product_pose_estimator" pkg="ahold_product_detection" type="pose_estimator.py" output="screen"/>
+  <node name="product_tracker" pkg="ahold_product_detection" type="tracker.py" output="screen"/>
 </launch>

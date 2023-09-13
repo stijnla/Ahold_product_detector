@@ -13,21 +13,23 @@ find_package(catkin REQUIRED COMPONENTS
   tf2
   tf_conversions
   tf2_ros
+  jsk_recognition_msgs
 )
 
 
 add_message_files(
   FILES
-  FloatList.msg
-  ProductList.msg
-  PointCloudList.msg
-  ProductClass.msg
+  RotatedBoundingBox.msg
+  Detection.msg
+  ProductPose.msg
+  ProductPoseArray.msg
 )
 
 ## Generate services in the 'srv' folder
 add_service_files(
    FILES
    RequestRGBD.srv
+   ChangeProduct.srv
 )
 
 ## Generate actions in the 'action' folder
@@ -44,6 +46,7 @@ generate_messages(
   sensor_msgs
   realsense2_camera
   geometry_msgs
+  jsk_recognition_msgs
   ) 
 
 
