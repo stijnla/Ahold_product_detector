@@ -155,6 +155,7 @@ class ProductDetector:
             device=0,
         )
 
+
         # inverse rotate output
         boxes, angle = self.rotation_compensation.rotate_bounding_boxes(
             results[0].boxes.xywh.cpu().numpy(), rgb_image
