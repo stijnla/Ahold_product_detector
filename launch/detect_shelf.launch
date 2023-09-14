@@ -1,0 +1,13 @@
+<launch>
+  <arg name="align_depth"       default="true"/>
+  <arg name="enable_pointcloud"       default="true"/>
+
+  <include file="$(find realsense2_camera)/launch/rs_camera.launch">
+    <arg name="align_depth" value="$(arg align_depth)"/>
+    <arg name="enable_pointcloud" value="$(arg enable_pointcloud)"/>
+  </include>
+
+  <node name="product_detector" pkg="ahold_product_detection" type="detector_shelf.py" output="screen"/>
+  <node name="product_pose_estimator" pkg="ahold_product_detection" type="pose_estimator.py" output="screen"/>
+  <node name="product_tracker" pkg="ahold_product_detection" type="tracker.py" output="screen"/>
+</launch>
