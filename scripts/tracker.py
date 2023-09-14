@@ -12,6 +12,7 @@ class PoseData():
 
     def __init__(self) -> None:
         self.subscriber = rospy.Subscriber("/pose_estimation_results", ProductPoseArray, self.callback)
+        self.previous_stamp = rospy.Time.now()
 
     def callback(self, data):
         self.data = data
@@ -19,15 +20,15 @@ class PoseData():
 
 class ProductTracker():
     def __init__(self) -> None:
+        self.frequency = 30
         self.pose_estimation = PoseData()
         self.tracker = Tracker(
             dist_threshold=0.1,
-            max_frame_skipped=5,
-            max_trace_length=3,
-            frequency=30,
+            max_frame_skipped=120,
+            frequency=self.frequency,
             robot=True,
         )
-        self.rate = rospy.Rate(30)
+        self.rate = rospy.Rate(self.frequency) # track products at 30 Hz
         self.change_product = rospy.Service("change_product", ChangeProduct, self.change_product_cb)
 
     def change_product_cb(self, request):
@@ -37,14 +38,21 @@ class ProductTracker():
     
     def run(self):
         try:
+            stamp = self.pose_estimation.data.header.stamp
             product_poses = self.pose_estimation.data
+            xyz_detections = [[p.x, p.y, p.z, p.theta, p.phi, p.psi] for p in product_poses.poses]
+            labels = [p.label for p in product_poses.poses]
+            scores = [p.score for p in product_poses.poses]
+            
+            if self.pose_estimation.previous_stamp.to_sec() == stamp.to_sec():
+                raise ValueError("New data has not been received... track with no measurements")
+            self.pose_estimation.previous_stamp = stamp
         except Exception as e:
-            return
-        # Track the detected products with Kalman Filter
-        xyz_detections = [[p.x, p.y, p.z, p.theta, p.phi, p.psi] for p in product_poses.poses]
-        labels = [p.label for p in product_poses.poses]
-        scores = [p.score for p in product_poses.poses]
+            xyz_detections = []
+            labels = []
+            scores = []
 
+        # Track the detected products with Kalman Filter
         self.tracker.process_detections(xyz_detections, labels, scores)
 
 

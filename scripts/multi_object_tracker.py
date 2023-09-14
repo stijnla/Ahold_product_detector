@@ -56,7 +56,6 @@ class Tracks:
             self.score = sum([real_scores[i] for i in classification_indices]) / len(classification_indices)
 
 
-    
     @property
     def variance(self):
         return self.KF.pred_err_cov
@@ -100,10 +99,9 @@ class Tracks:
 
 class Tracker:
 
-    def __init__(self, dist_threshold, max_frame_skipped, max_trace_length, frequency, robot, requested_yolo_id=-1):
+    def __init__(self, dist_threshold, max_frame_skipped, frequency, robot, requested_yolo_id=-1):
         self.dist_threshold = dist_threshold
         self.max_frame_skipped = max_frame_skipped
-        self.max_trace_length = max_trace_length
         self.current_track_id = 0
         self.tracks = []
         self.frequency = frequency
@@ -238,10 +236,8 @@ class Tracker:
 
 
     def choose_desired_product(self):
-        desired_product = self.requested_yolo_id #31 # 93 = hagelslag melk, 31 = gotan chili sauce
-        minimun_required_detections = 5
+        desired_product = self.requested_yolo_id 
         
-        switch_threshold = 100
         detected_desired_product_scores = []
         detected_desired_product_track_ids = []
         for i, track in enumerate(self.tracks):
@@ -348,11 +344,8 @@ class Tracker:
                 # Keep track of the missed measurements of this object
                 track.skipped_frames += 1
 
-
         # Delete tracks if skipped_frames too large
         self.tracks = [track for track in self.tracks if not track.skipped_frames > self.max_frame_skipped]
-
-        
 
         # Predict next position for each track
         [track.KF.predict() for track in self.tracks]

@@ -42,6 +42,7 @@ class DetectorData:
         )
         self.data = None
         self.bridge = CvBridge()
+        self.previous_stamp = rospy.Time.now()
 
     def callback(self, data):
         self.data = data
@@ -126,11 +127,18 @@ class PoseEstimator:
     def run(self):
         # read data when available
         try:
+            
             depth_image = self.detection.bridge.imgmsg_to_cv2(
                 self.detection.data.depth_image, desired_encoding="passthrough"
             )
             stamp = copy(self.detection.data.header.stamp)
             boxes = self.detection.data.detections
+
+            
+            if self.detection.previous_stamp.to_sec() == stamp.to_sec():
+                raise ValueError("New data has not been received... stopping pose estimation")
+            self.detection.previous_stamp = stamp
+
         except Exception as e:
             return
 
@@ -140,8 +148,6 @@ class PoseEstimator:
         # Convert to 3D
         product_poses = ProductPoseArray()
         product_poses.header.stamp = stamp
-
-        print(len(boxes))
 
         boxes_estimated_z = self.estimate_bbox_depth(boxes, depth_image)
         for z, bbox in zip(boxes_estimated_z, boxes):

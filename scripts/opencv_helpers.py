@@ -16,7 +16,7 @@ class RotatedRect():
         
         cv2.line(self.frame, self.corners[0], self.corners[1], self.color, self.thickness)
         cv2.line(self.frame, self.corners[1], self.corners[2], self.color, self.thickness)
-        cv2.line(self.frame, self.corners[2], self.corners[3], self.color[::-1], self.thickness)
+        cv2.line(self.frame, self.corners[2], self.corners[3], self.color, self.thickness)
         cv2.line(self.frame, self.corners[3], self.corners[0], self.color, self.thickness)
 
     def determine_rect_corners(self):
@@ -43,10 +43,10 @@ class RotatedRectCorners():
 
         self.color = color
         self.thickness = 2
-        print(self.corners[0])
+        
         cv2.line(self.frame, self.corners[0], self.corners[1], self.color, self.thickness)
         cv2.line(self.frame, self.corners[1], self.corners[2], self.color, self.thickness)
-        cv2.line(self.frame, self.corners[2], self.corners[3], self.color[::-1], self.thickness)
+        cv2.line(self.frame, self.corners[2], self.corners[3], self.color, self.thickness)
         cv2.line(self.frame, self.corners[3], self.corners[0], self.color, self.thickness)
 
 
