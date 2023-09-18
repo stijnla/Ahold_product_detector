@@ -12,23 +12,21 @@ import os
 from opencv_helpers import RotatedRect
 
 
-class Tracks:
+class Track:
 
     def __init__(self, measurement, classification, score, track_id, frequency):
         state = np.array(measurement) 
         self.KF = KalmanFilter(init_state=state, frequency=frequency, model=StateSpaceModel.load_model("../state_space_models/position.yaml"))
-        self.trace = deque(maxlen=20)
+        self.trace = None
         self.track_id = track_id
-        self.skipped_frames = 00
-        self.classifications = 20*[None]
-        self.scores = 20*[None]
+        self.skipped_frames = 0
+        self.classifications = {}
         self.frequencies = []
         self.classification = None
         self.score = None
+        self.occurance = None
         self.range_threshold = 2.0
-        if classification == classification and score == score:
-            self.classifications = self.update_cache(self.classifications, classification)
-            self.scores = self.update_cache(self.scores, score)
+        self.classifications = self.update_cache(self.classifications, classification, score)
 
 
     @property
@@ -37,23 +35,22 @@ class Tracks:
 
     @property
     def in_range(self):
-        pos = self.trace[-1]
+        return self.dist < self.range_threshold
+
+    @property
+    def dist(self):
+        pos = self.trace
         dist = np.linalg.norm(pos[:2])
-        return dist < self.range_threshold
-
+        return dist
+    
     def calculate_classification_and_score(self):
-        # Only pick those that are not None (so if < 20 detections)
-        real_classifications = [classification for classification in self.classifications if classification != None]
-        real_scores = [score for score in self.scores if score != None]
-        if len(real_classifications) > 0:
-            # Find unique classifications, count them, pick most occurring classification
-            unique_classifications, counts = np.unique(real_classifications, return_counts=True)
-            index = np.argmax(counts)
-            self.classification = unique_classifications[index]
-
-            # Get all values that correspond with this most occurring classification, calculate mean score
-            classification_indices = [i for i, classification in enumerate(real_classifications) if classification == self.classification]
-            self.score = sum([real_scores[i] for i in classification_indices]) / len(classification_indices)
+        classes = list(self.classifications.keys())
+        values = list(self.classifications.values())
+        occurances = np.array([c[0] for c in values])
+        scores = [c[1] for c in values] 
+        self.classification = classes[np.argmax(occurances)]
+        self.score = scores[np.argmax(occurances)] # mean score that most occurring class has
+        self.occurance = np.max(occurances)
 
 
     @property
@@ -61,21 +58,22 @@ class Tracks:
         return self.KF.pred_err_cov
 
 
-    def update_cache(self, cache, data):
+    def update_cache(self, cache, classification, score):
         # Move all stored data points up one position
-        cache = [cache[i] for i, _ in enumerate(cache) if i < len(cache) - 1]
+        if classification == None or score == None:
+            return cache
         
-        # Insert new data in first position of cache
-        cache.insert(0, data)
-
+        if classification in cache.keys():
+            cache[classification] = (cache[classification][0] + 1, (cache[classification][1] + score)/(cache[classification][0] + 1))
+        else:
+            cache[classification] = (1, score)
         return cache
     
 
     def update(self, measurement, classification, score, frequency):
         # Add classification to classifications
         if classification == classification and score == score:
-            self.classifications = self.update_cache(self.classifications, classification)
-            self.scores = self.update_cache(self.scores, score)
+            self.classifications = self.update_cache(self.classifications, classification, score)
 
             self.calculate_classification_and_score()
 
@@ -125,9 +123,15 @@ class Tracker:
         self.previous_measurement_exists = True
         self.prev_time = current_time
         self.update(xyz, classes, scores, 1/float(delta_t)) 
-        product_to_grasp = self.choose_desired_product()
+        
+        product_to_grasp = self.choose_desired_product_score()
+
+        
         if product_to_grasp != None:
+            print(product_to_grasp.in_range)
+            print(product_to_grasp.dist)
             self.broadcast_product_to_grasp(product_to_grasp)
+        
         self.visualize(xyz, product_to_grasp)
 
 
@@ -137,7 +141,7 @@ class Tracker:
         br = tf2_ros.TransformBroadcaster()
         t = TransformStamped()
 
-        x, y, z, theta, phi, psi = product_to_grasp.trace[-1]
+        x, y, z, theta, phi, psi = product_to_grasp.trace
 
         t.header.stamp = rospy.Time.now()
 
@@ -201,7 +205,7 @@ class Tracker:
         
         # Draw the latest updated states
         for track in self.tracks:
-            updated_state = track.trace[-1]
+            updated_state = track.trace
 
             if self.robot:
                 x = int(scale * updated_state[1]) + int(width/2)
@@ -219,7 +223,8 @@ class Tracker:
         
         # product to grasp
         if product_to_grasp != None:
-            updated_state = product_to_grasp.trace[-1]
+            updated_state = product_to_grasp.trace
+
             if self.robot:
                 x = int(scale * updated_state[1]) + int(width/2)
                 z = int(scale *updated_state[0])  + 100
@@ -234,36 +239,37 @@ class Tracker:
 
 
 
-
-    def choose_desired_product(self):
+    def choose_desired_product_occurance(self):
         desired_product = self.requested_yolo_id 
         
-        detected_desired_product_scores = []
-        detected_desired_product_track_ids = []
-        for i, track in enumerate(self.tracks):
-
-            if track.classification == desired_product and track.score > 0.5 and track.in_range:
-                detected_desired_product_scores.append(track.score)
-                detected_desired_product_track_ids.append(i)
+        # if already chosen a product to pick AND the product is still tracked by the tracker
+        if self.index_product_to_grasp != None and self.index_product_to_grasp in [track.track_id for track in self.tracks]:
+            track = [track for track in self.tracks if track.track_id == self.index_product_to_grasp][0]
+            return track
         
-        if detected_desired_product_scores != []:
-            if self.index_product_to_grasp == None:
-                initial_product_to_grasp_idx = np.argmax(detected_desired_product_scores)
-                self.index_product_to_grasp = self.tracks[detected_desired_product_track_ids[initial_product_to_grasp_idx]].track_id
-            
-        desired_track = []
-        if self.index_product_to_grasp != None:
-            for track in self.tracks:
-                if track.track_id == self.index_product_to_grasp:
-                    desired_track.append(track)
-            
-            if desired_track == []:
-                self.index_product_to_grasp = None
-                self.initial_score_product_to_grasp = None
-            else:
-                return desired_track[0]
-        return None
+        # product not yet chosen OR not tracked anymore, choose product that is most often classified as desired product
+        occurances = np.array([track.occurance for track in self.tracks if track.classification == desired_product])
+        if len(occurances) == 0:
+            return None
+        
+        self.index_product_to_grasp = self.tracks[np.argmax(occurances)].track_id
+        return self.tracks[np.argmax(occurances)]
 
+    def choose_desired_product_score(self):
+        desired_product = self.requested_yolo_id 
+        
+        # if already chosen a product to pick AND the product is still tracked by the tracker
+        if self.index_product_to_grasp != None and self.index_product_to_grasp in [track.track_id for track in self.tracks]:
+            track = [track for track in self.tracks if track.track_id == self.index_product_to_grasp][0]
+            return track
+        
+        # product not yet chosen OR not tracked anymore, choose product that is most often classified as desired product
+        scores = np.array([track.score for track in self.tracks if track.classification == desired_product])
+        if len(scores) == 0:
+            return None
+        
+        self.index_product_to_grasp = self.tracks[np.argmax(scores)].track_id
+        return self.tracks[np.argmax(scores)]
 
 
     def calculate_variance_measurements(self, measurement):
@@ -287,15 +293,13 @@ class Tracker:
             self.measurement_variance = ((measurement - self.mean) @ (measurement - self.mean).T) / (self.num_measurements - 1) 
         
 
-    
-
 
     def update(self, measurements, classifications, scores, current_frequency):
         
         # Initialize tracks
         if len(self.tracks) == 0:
             for i, measurement in enumerate(measurements):
-                self.tracks.append(Tracks(measurement, classifications[i], scores[i], self.current_track_id, current_frequency))
+                self.tracks.append(Track(measurement, classifications[i], scores[i], self.current_track_id, current_frequency))
                 self.current_track_id += 1
         
         if len(measurements) > 0:
@@ -321,7 +325,7 @@ class Tracker:
             for i, det in enumerate(measurements):
                 if i not in assigned_det_idxs:
                     # TODO: do not add tracks that are (0, 0, 0) (bad measurement)
-                    self.tracks.append(Tracks(det, classifications[i], scores[i], self.current_track_id, current_frequency))
+                    self.tracks.append(Track(det, classifications[i], scores[i], self.current_track_id, current_frequency))
                     self.current_track_id += 1
 
             # Propagate unassigned tracks using the prediction 
@@ -352,4 +356,4 @@ class Tracker:
         
         # Update traces for visualization
         for track in self.tracks:                
-            track.trace.append(np.array(track.KF.state))
+            track.trace = np.array(track.KF.state)

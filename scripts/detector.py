@@ -50,7 +50,6 @@ class CameraData:
         self.pointcloud_msg = data
 
     def rgb_callback(self, data):
-        print('called')
         self.rgb_msg = data
 
     @property
