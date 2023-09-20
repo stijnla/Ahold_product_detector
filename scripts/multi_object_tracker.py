@@ -122,7 +122,7 @@ class Tracker:
         self.previous_measurement_exists = True
         self.prev_time = current_time
         self.update(xyz, classes, scores, 1/float(delta_t)) 
-        product_to_grasp = self.choose_desired_product_score()
+        product_to_grasp = self.choose_desired_product_occurance()
         self.requested_product_tracked = product_to_grasp != None
         if self.requested_product_tracked:
             self.broadcast_product_to_grasp(product_to_grasp)
@@ -242,10 +242,11 @@ class Tracker:
         
         # product not yet chosen OR not tracked anymore, choose product that is most often classified as desired product
         occurances = np.array([track.occurance for track in self.tracks if track.classification == desired_product])
+        occurance_track_indices = np.array([i for i, track in enumerate(self.tracks) if track.classification == desired_product])
         if len(occurances) == 0:
             return None
         
-        self.index_product_to_grasp = self.tracks[np.argmax(occurances)].track_id
+        self.index_product_to_grasp = self.tracks[occurance_track_indices[np.argmax(occurances)]].track_id
         return self.tracks[np.argmax(occurances)]
 
     def choose_desired_product_score(self):
@@ -258,10 +259,11 @@ class Tracker:
         
         # product not yet chosen OR not tracked anymore, choose product that is most often classified as desired product
         scores = np.array([track.score for track in self.tracks if track.classification == desired_product])
+        scores_track_indices = np.array([i for i, track in enumerate(self.tracks) if track.classification == desired_product])
         if len(scores) == 0:
             return None
         
-        self.index_product_to_grasp = self.tracks[np.argmax(scores)].track_id
+        self.index_product_to_grasp = self.tracks[scores_track_indices[np.argmax(scores)]].track_id
         return self.tracks[np.argmax(scores)]
 
 
