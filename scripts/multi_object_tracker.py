@@ -112,8 +112,7 @@ class Tracker:
         self.initial_score_product_to_grasp = None
         self.robot = robot
         self.requested_yolo_id = requested_yolo_id
-
-
+        self.requested_product_tracked = False
 
     def process_detections(self, xyz, classes, scores):
         current_time = rospy.get_time()
@@ -126,9 +125,10 @@ class Tracker:
         self.prev_time = current_time
         self.update(xyz, classes, scores, 1/float(delta_t)) 
         product_to_grasp = self.choose_desired_product()
-        if product_to_grasp != None:
+        self.requested_product_tracked = product_to_grasp != None
+        if self.requested_product_tracked:
             self.broadcast_product_to_grasp(product_to_grasp)
-        self.visualize(xyz, product_to_grasp)
+        # self.visualize(xyz, product_to_grasp)
 
 
 

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import rospy
+from std_msgs.msg import Bool
 from tf.transformations import quaternion_from_euler, euler_from_quaternion
 import tf2_ros
 import tf
@@ -24,12 +25,15 @@ class ProductTracker():
         self.pose_estimation = PoseData()
         self.tracker = Tracker(
             dist_threshold=0.1,
-            max_frame_skipped=120,
+            max_frame_skipped=240,
             frequency=self.frequency,
             robot=True,
         )
         self.rate = rospy.Rate(self.frequency) # track products at 30 Hz
         self.change_product = rospy.Service("change_product", ChangeProduct, self.change_product_cb)
+        self.publish_is_tracked = rospy.Publisher("~is_tracked", Bool, queue_size=10)
+        self.is_tracked = Bool(False)
+        
 
     def change_product_cb(self, request):
         rospy.loginfo(f"Changing tracked product from {self.tracker.requested_yolo_id} to {request.product_id}")
@@ -55,6 +59,10 @@ class ProductTracker():
         # Track the detected products with Kalman Filter
         self.tracker.process_detections(xyz_detections, labels, scores)
 
+        # Publish if tracked
+        self.is_tracked.data = self.tracker.requested_product_tracked
+        self.publish_is_tracked.publish(self.is_tracked)
+
 
 if __name__ == "__main__":
     rospy.init_node("product_tracker")
@@ -63,5 +71,5 @@ if __name__ == "__main__":
     while not rospy.is_shutdown():
         product_tracker.run()
         product_tracker.rate.sleep()
-        print(f"product tracking rate: {1/(time.time() - t0)}")
+        # print(f"product tracking rate: {1/(time.time() - t0)}")
         t0 = time.time()
