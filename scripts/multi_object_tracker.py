@@ -139,7 +139,7 @@ class Tracker:
                 if not self.first_transform_sent:
                     self.broadcast_static_product_to_grasp(product_to_grasp)
                     self.first_transform_sent = True
-                    
+
         # self.visualize(xyz, product_to_grasp)
 
 
@@ -284,7 +284,7 @@ class Tracker:
             return None
         
         self.index_product_to_grasp = self.tracks[occurance_track_indices[np.argmax(occurances)]].track_id
-        return self.tracks[np.argmax(occurances)]
+        return self.tracks[occurance_track_indices[np.argmax(occurances)]]
 
 
 
@@ -303,7 +303,7 @@ class Tracker:
             return None
         
         self.index_product_to_grasp = self.tracks[scores_track_indices[np.argmax(scores)]].track_id
-        return self.tracks[np.argmax(scores)]
+        return self.tracks[scores_track_indices[np.argmax(scores)]]
 
 
 

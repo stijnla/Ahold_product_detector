@@ -1,0 +1,4 @@
+<launch>
+  <node name="product_detector" pkg="ahold_product_detection" type="detector.py" output="screen"/>
+  <node name="product_pose_estimator" pkg="ahold_product_detection" type="pose_estimator_no_tracking.py" output="screen"/>
+</launch>
