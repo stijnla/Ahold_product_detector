@@ -67,13 +67,14 @@ class ProductDetector:
     def __init__(self) -> None:
         self.camera = CameraData()
         self.rotation_compensation = RotationCompensation()
-        self.rotate = True
+        self.rotation = True # do rotation compensation
+        self.agnostic_nms = True # do class agnostic nms (True) or intra-class nms (False)
         self.rate = rospy.Rate(30)
         weight_path = os.path.join(
             os.path.dirname(os.path.abspath(__file__)),
             "..",
             "yolo_model",
-            "large/best.pt",
+            "best.pt",
         )
         self.model = ultralytics.YOLO(weight_path)
         self.pub = rospy.Publisher("/detection_results", Detection, queue_size=10)
@@ -141,25 +142,37 @@ class ProductDetector:
 
         # rotate input
         rgb_image = self.bridge.imgmsg_to_cv2(rgb_msg, desired_encoding="bgr8")
-        rotated_rgb_image = self.rotation_compensation.rotate_image(
-            rgb_image, time_stamp
-        )
 
-        # predict
-        results = self.model.predict(
-            source=rotated_rgb_image,
-            show=False,
-            save=False,
-            verbose=False,
-            device=0,
-            agnostic_nms=True
-        )
+        if self.rotation:
+            rotated_rgb_image = self.rotation_compensation.rotate_image(rgb_image, time_stamp)
+
+            # predict
+            results = self.model.predict(
+                source=rotated_rgb_image,
+                show=False,
+                save=False,
+                verbose=False,
+                device=0,
+                agnostic_nms=self.agnostic_nms,
+            )
 
 
-        # inverse rotate output
-        boxes, angle = self.rotation_compensation.rotate_bounding_boxes(
-            results[0].boxes.xywh.cpu().numpy(), rgb_image
-        )
+            # inverse rotate output
+            boxes, angle = self.rotation_compensation.rotate_bounding_boxes(
+                results[0].boxes.xywh.cpu().numpy(), rgb_image
+            )
+        
+        else:
+            # predict
+            results = self.model.predict(
+                source=rgb_image,
+                show=False,
+                save=False,
+                verbose=False,
+                device=0,
+                agnostic_nms=self.agnostic_nms,
+            )
+            boxes = results[0].boxes.xywh.cpu().numpy()
         scores = results[0].boxes.conf.cpu().numpy()
         labels = results[0].boxes.cls.cpu().numpy()
         detection_results_msg = self.generate_detection_message(
@@ -170,8 +183,9 @@ class ProductDetector:
         self.pub.publish(detection_results_msg)
 
         # visualization
-        self.show_rotated_results(rgb_image, boxes, angle)
-        cv2.waitKey(1)
+        # self.plot_detection_results(rotated_rgb_image, results)
+        # self.show_rotated_results(rgb_image, boxes, angle)
+        # cv2.waitKey(1)
 
 
 import time
@@ -183,5 +197,5 @@ if __name__ == "__main__":
     while not rospy.is_shutdown():
         detector.run()
         detector.rate.sleep()
-        print(f"product detection rate: {1/(time.time() - t0)}")
+        # print(f"product detection rate: {1/(time.time() - t0)}")
         t0 = time.time()

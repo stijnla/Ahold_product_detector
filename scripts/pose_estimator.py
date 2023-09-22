@@ -205,5 +205,5 @@ if __name__ == "__main__":
     while not rospy.is_shutdown():
         pose_estimator.run()
         pose_estimator.rate.sleep()
-        print(f"product pose estimation rate: {1/(time.time() - t0)}")
+        # print(f"product pose estimation rate: {1/(time.time() - t0)}")
         t0 = time.time()
