@@ -113,6 +113,9 @@ class Tracker:
         self.robot = robot
         self.requested_yolo_id = requested_yolo_id
         self.requested_product_tracked = False
+        # Use closed-loop grasping or open-loop grasping
+        self.closed_loop = True
+        self.first_transform_sent = False
 
     def process_detections(self, xyz, classes, scores):
         current_time = rospy.get_time()
@@ -124,10 +127,19 @@ class Tracker:
         self.previous_measurement_exists = True
         self.prev_time = current_time
         self.update(xyz, classes, scores, 1/float(delta_t)) 
+
+        # Change to desired choosing method (occurance or score based)
         product_to_grasp = self.choose_desired_product_occurance()
+
         self.requested_product_tracked = product_to_grasp != None
         if self.requested_product_tracked:
-            self.broadcast_product_to_grasp(product_to_grasp)
+            if self.closed_loop:
+                self.broadcast_product_to_grasp(product_to_grasp)
+            else:
+                if not self.first_transform_sent:
+                    self.broadcast_static_product_to_grasp(product_to_grasp)
+                    self.first_transform_sent = True
+                    
         # self.visualize(xyz, product_to_grasp)
 
 
@@ -156,7 +168,30 @@ class Tracker:
 
         br.sendTransform(t)
 
+    def broadcast_static_product_to_grasp(self, product_to_grasp):
+        # Convert message to a tf2 frame when message becomes available
+        br = tf2_ros.StaticTransformBroadcaster()
+        t = TransformStamped()
 
+        x, y, z, theta, phi, psi = np.array(product_to_grasp.KF.state[:6])
+
+        t.header.stamp = rospy.Time.now()
+
+        if self.robot:
+            t.header.frame_id = "base_link"
+        else:
+            t.header.frame_id = "camera_color_optical_frame"
+        t.child_frame_id = 'desired_product'
+        t.transform.translation.x = x
+        t.transform.translation.y = y
+        t.transform.translation.z = z
+        q = quaternion_from_euler(theta, phi,  np.pi/2)
+        t.transform.rotation.x = q[0]
+        t.transform.rotation.y = q[1]
+        t.transform.rotation.z = q[2]
+        t.transform.rotation.w = q[3]
+
+        br.sendTransform(t)
         
     def visualize(self, measurements, product_to_grasp):
         frame_xz = self.plot_birdseye_view(measurements, product_to_grasp)  
