@@ -6,25 +6,33 @@ import os
 # The state is defined as [x, y, z, theta, phi, psi]
 class StateSpaceModel():
 
-	def __init__(self, A, B, H, processVariance, measurementVariance) -> None:
+	def __init__(self, A, B, H, processVariance, measurementVariance, config) -> None:
 		self.A = A
 		self.B = B
 		self.H = H
 		self.processVariance = processVariance
 		self.measurementVariance = measurementVariance
-		
+		self.config = config
 		# check if model is valid
-		assert self.A.shape == self.measurementVariance.shape
+		if not self.measurementVariance.shape:
+			self.measurementVariance = np.ones(self.A.shape)*measurementVariance
+		else:
+			assert self.A.shape == self.measurementVariance.shape
 
 	@classmethod
-	def load_model(cls, model_config_path):
+	def load_model(cls, model_config_path, frequency):
 		with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), model_config_path), 'r') as f:
 			config = yaml.safe_load(f)
-			return cls(np.array(config['A']),
+			if 'dt' in config['A']:
+				A_matrix = [1/frequency for value in config['A'] if value == 'dt']
+			else:
+				A_matrix = config['A']
+			return cls(np.array(A_matrix),
 					   np.array(config['B']), 
 					   np.array(config['H']),
 					   np.array(config['processVariance']),
-					   np.array(config['measurementVariance']))
+					   np.array(config['measurementVariance']),
+					   config)
 	
 	def summary(self):
 		print("State Space model summary:")
@@ -73,6 +81,7 @@ class KalmanFilter:
 
 	def predict(self):
 		# Predict next state and the next covariance matrix
+		print('predict')
 		self.pred_state = (self.A @ self.state) + (self.B * self.U).reshape(self.B.shape[0], 1)
 		self.pred_err_cov = self.A@self.err_cov@self.A.T + self.Q
 
@@ -80,6 +89,7 @@ class KalmanFilter:
 	def update(self, measurement):
 		# Check whether sensor is giving trusty readouts, otherwise neglect by having a large observation variance matrix
 		# Use measurement to refine prediction
+		print('update')
 		kalman_gain = self.pred_err_cov@self.H.T@np.linalg.pinv(self.H@self.pred_err_cov@self.H.T+self.R)
 		self.state = (self.pred_state + kalman_gain @ (measurement - (self.H @ self.pred_state)))
 		self.err_cov = (np.identity(self.err_cov.shape[0]) - kalman_gain@self.H)@self.pred_err_cov
