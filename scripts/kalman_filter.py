@@ -81,7 +81,6 @@ class KalmanFilter:
 
 	def predict(self):
 		# Predict next state and the next covariance matrix
-		print('predict')
 		self.pred_state = (self.A @ self.state) + (self.B * self.U).reshape(self.B.shape[0], 1)
 		self.pred_err_cov = self.A@self.err_cov@self.A.T + self.Q
 
@@ -89,7 +88,6 @@ class KalmanFilter:
 	def update(self, measurement):
 		# Check whether sensor is giving trusty readouts, otherwise neglect by having a large observation variance matrix
 		# Use measurement to refine prediction
-		print('update')
 		kalman_gain = self.pred_err_cov@self.H.T@np.linalg.pinv(self.H@self.pred_err_cov@self.H.T+self.R)
 		self.state = (self.pred_state + kalman_gain @ (measurement - (self.H @ self.pred_state)))
 		self.err_cov = (np.identity(self.err_cov.shape[0]) - kalman_gain@self.H)@self.pred_err_cov

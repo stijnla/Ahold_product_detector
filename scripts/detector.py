@@ -73,7 +73,7 @@ class ProductDetector:
             os.path.dirname(os.path.abspath(__file__)),
             "..",
             "yolo_model",
-            "large/best.pt",
+            "best.pt",
         )
         self.model = ultralytics.YOLO(weight_path)
         self.pub = rospy.Publisher("/detection_results", Detection, queue_size=10)
@@ -152,7 +152,7 @@ class ProductDetector:
             save=False,
             verbose=False,
             device=0,
-            agnostic_nms=True
+            agnostic_nms=True,
         )
 
 
@@ -160,6 +160,8 @@ class ProductDetector:
         boxes, angle = self.rotation_compensation.rotate_bounding_boxes(
             results[0].boxes.xywh.cpu().numpy(), rgb_image
         )
+        
+
         scores = results[0].boxes.conf.cpu().numpy()
         labels = results[0].boxes.cls.cpu().numpy()
         detection_results_msg = self.generate_detection_message(
@@ -170,8 +172,9 @@ class ProductDetector:
         self.pub.publish(detection_results_msg)
 
         # visualization
-        self.show_rotated_results(rgb_image, boxes, angle)
-        cv2.waitKey(1)
+        #self.plot_detection_results(rotated_rgb_image, results)
+        #self.show_rotated_results(rgb_image, boxes, angle)
+        #cv2.waitKey(1)
 
 
 import time
@@ -183,5 +186,5 @@ if __name__ == "__main__":
     while not rospy.is_shutdown():
         detector.run()
         detector.rate.sleep()
-        print(f"product detection rate: {1/(time.time() - t0)}")
+        # print(f"product detection rate: {1/(time.time() - t0)}")
         t0 = time.time()
