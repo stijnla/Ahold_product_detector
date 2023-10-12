@@ -7,7 +7,7 @@ import cv2
 from scipy.optimize import linear_sum_assignment
 from tf.transformations import quaternion_from_euler
 import tf2_ros
-from geometry_msgs.msg import TransformStamped
+from geometry_msgs.msg import TransformStamped, Quaternion
 import os
 from opencv_helpers import RotatedRect
 
@@ -146,11 +146,11 @@ class Tracker:
         t.transform.translation.x = x
         t.transform.translation.y = y
         t.transform.translation.z = z
-        q = quaternion_from_euler(theta, phi,  np.pi/2)
-        t.transform.rotation.x = q[0]
-        t.transform.rotation.y = q[1]
-        t.transform.rotation.z = q[2]
-        t.transform.rotation.w = q[3]
+
+        #q = quaternion_from_euler(theta, phi,  np.pi/2)
+
+        # set orientation equal to base_link 
+        t.transform.rotation = Quaternion(x=0, y=0, z=0, w=1)
 
         br.sendTransform(t)
 

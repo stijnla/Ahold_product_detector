@@ -9,7 +9,7 @@ import cv2
 class RotationCompensation:
     def __init__(self) -> None:
         self.listener = tf.TransformListener()
-        rospy.sleep(1.0)
+        rospy.sleep(3.0)
 
     def rotate_image(self, img, stamp):
         (trans, rot) = self.listener.lookupTransform(
