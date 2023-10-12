@@ -9,7 +9,7 @@ import numpy as np
 from multi_object_tracker import Tracker
 
 # message and service imports
-from sensor_msgs.msg import Image, PointCloud2, CameraInfo
+from sensor_msgs.msg import Image, PointCloud2, CameraInfo, CompressedImage
 from jsk_recognition_msgs.msg import (
     BoundingBox,
     BoundingBoxArrayWithCameraInfo,
@@ -77,6 +77,7 @@ class ProductDetector:
         )
         self.model = ultralytics.YOLO(weight_path)
         self.pub = rospy.Publisher("/detection_results", Detection, queue_size=10)
+        self.pub_img = rospy.Publisher("/detection_image", CompressedImage, queue_size=10)
 
         self.bridge = CvBridge()
 
@@ -145,7 +146,17 @@ class ProductDetector:
             rgb_image, time_stamp
         )
 
-        # predict
+        # # predict
+        # results = self.model.track(
+        #     source=rotated_rgb_image,
+        #     persist=True,
+        #     show=False,
+        #     save=False,
+        #     verbose=False,
+        #     device=0,
+        #     agnostic_nms=True,
+        # )
+
         results = self.model.predict(
             source=rotated_rgb_image,
             show=False,
@@ -168,6 +179,21 @@ class ProductDetector:
         detection_results_msg.rgb_image = rgb_msg
         detection_results_msg.depth_image = depth_msg
         self.pub.publish(detection_results_msg)
+
+        frame = rotated_rgb_image
+        for r in results:
+            annotator = Annotator(frame)
+            boxes = r.boxes
+            for box in boxes:
+                b = box.xyxy[
+                    0
+                ]  # get box coordinates in (top, left, bottom, right) format
+                c = box.cls
+                annotator.box_label(b, self.model.names[int(c)])
+
+        frame = annotator.result()
+        compressed_image = self.bridge.cv2_to_compressed_imgmsg(frame)
+        self.pub_img.publish(compressed_image)
 
         # visualization
         # self.plot_detection_results(rotated_rgb_image, results)
