@@ -78,6 +78,8 @@ class ProductDetector:
         self.model = ultralytics.YOLO(weight_path)
         self.pub = rospy.Publisher("/detection_results", Detection, queue_size=10)
 
+        self.image_pub = rospy.Publisher("/detection_results_image", Image, queue_size=10)
+
         self.bridge = CvBridge()
 
     def plot_detection_results(self, frame, results):
@@ -92,10 +94,15 @@ class ProductDetector:
                 c = box.cls
                 annotator.box_label(b, self.model.names[int(c)])
 
-        frame = annotator.result()
+        annotated_frame = annotator.result()
 
-        cv2.imshow("Result", frame)
+        cv2.imshow("Result", annotated_frame)
         cv2.waitKey(1)
+
+        if isinstance(annotated_frame, np.ndarray):
+            return annotated_frame
+        else:
+            raise TypeError("The annotated frame is not a numpy array")
 
     def show_rotated_results(self, image, boxes, angle):
         for box in boxes:
@@ -175,6 +182,13 @@ class ProductDetector:
         #self.plot_detection_results(rotated_rgb_image, results)
         #self.show_rotated_results(rgb_image, boxes, angle)
         #cv2.waitKey(1)
+
+        # publish image
+        annotated_frame = self.plot_detection_results(rotated_rgb_image, results)
+        if isinstance(annotated_frame, np.ndarray):
+            self.image_pub.publish(self.bridge.cv2_to_imgmsg(annotated_frame, "bgr8"))
+        else:
+            rospy.logerr("The annotated frame is not a numpy array")
 
 
 import time
