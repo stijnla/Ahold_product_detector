@@ -14,6 +14,9 @@ find_package(catkin REQUIRED COMPONENTS
   tf_conversions
   tf2_ros
   jsk_recognition_msgs
+  pcl_conversions
+  pcl_ros
+  message_filters
 )
 
 
@@ -28,7 +31,6 @@ add_message_files(
 ## Generate services in the 'srv' folder
 add_service_files(
    FILES
-   RequestRGBD.srv
    ChangeProduct.srv
 )
 
@@ -63,3 +65,4 @@ include_directories(
 # include
   ${catkin_INCLUDE_DIRS}
 )
+
